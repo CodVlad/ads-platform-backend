@@ -154,6 +154,7 @@ export const forgotPassword = async (req, res, next) => {
     console.log('[FORGOT] email exists:', !!user);
 
     let emailResult = { delivered: false, provider: 'unknown' };
+    let resetUrl = null;
 
     // If user exists, create reset token
     if (user) {
@@ -166,7 +167,7 @@ export const forgotPassword = async (req, res, next) => {
       await user.save({ validateBeforeSave: false });
 
       // Build reset URL
-      const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${resetToken}`;
+      resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${resetToken}`;
 
       // Send password reset email
       emailResult = await sendPasswordResetEmail({
@@ -186,6 +187,8 @@ export const forgotPassword = async (req, res, next) => {
         delivered: emailResult?.delivered ?? false,
         provider: emailResult?.provider ?? 'unknown',
       },
+      // IMPORTANT: only include debugUrl if EMAIL_DEBUG is exactly "true"
+      ...(process.env.EMAIL_DEBUG === 'true' ? { debugUrl: resetUrl || null } : {}),
     });
   } catch (error) {
     next(error);
