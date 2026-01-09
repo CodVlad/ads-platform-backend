@@ -97,9 +97,10 @@ app.use('/api/auth', authRoutes);
 app.use('/api/ads', apiLimiter, adsRoutes);
 
 // Favorites routes
+// GET /api/favorites/my - Get current user's favorite ads (protected)
+// GET /api/favorites - Get user's favorite ads (protected)
 // POST /api/favorites/:adId - Add ad to favorites (protected)
 // DELETE /api/favorites/:adId - Remove ad from favorites (protected)
-// GET /api/favorites - Get user's favorite ads (protected)
 app.use('/api/favorites', apiLimiter, favoritesRoutes);
 
 
