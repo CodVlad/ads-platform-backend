@@ -76,43 +76,13 @@ export const addToFavorites = async (req, res, next) => {
     }
 
     // Add ad to favorites using $addToSet (prevents duplicates)
-    // Note: $addToSet is idempotent - it won't add if already present
-    try {
-      const updatedUser = await User.findByIdAndUpdate(
-        req.user.id,
-        {
-          $addToSet: { favorites: adId },
-        },
-        { new: true, runValidators: true }
-      );
-
-      // Double-check: if ad wasn't added (already present), treat as success (idempotent)
-      const updatedFavoritesIds = (updatedUser?.favorites || []).map((id) => id.toString());
-      if (!updatedFavoritesIds.includes(adId)) {
-        // This shouldn't happen with $addToSet, but handle gracefully
-        return res.status(200).json({
-          success: true,
-          message: 'Already in favorites',
-          data: { favorited: true },
-        });
-      }
-    } catch (dbError) {
-      // Check if this is a duplicate key error (shouldn't happen with $addToSet, but be defensive)
-      if (dbError.code === 11000 || dbError.name === 'MongoServerError') {
-        // Duplicate key error - treat as idempotent success
-        return res.status(200).json({
-          success: true,
-          message: 'Already in favorites',
-          data: { favorited: true },
-        });
-      }
-      // If database validation fails for other reasons, treat as server error
-      return next(
-        new AppError('Failed to add to favorites', 500, {
-          type: 'DATABASE_ERROR',
-        })
-      );
-    }
+    await User.findByIdAndUpdate(
+      req.user.id,
+      {
+        $addToSet: { favorites: adId },
+      },
+      { new: true, runValidators: true }
+    );
 
     // Success response - ALWAYS use status 200 for success
     return res.status(200).json({
