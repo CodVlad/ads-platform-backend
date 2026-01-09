@@ -70,8 +70,8 @@ export const addToFavorites = async (req, res, next) => {
       // Success response - ALWAYS use status 200 for success
       return res.status(200).json({
         success: true,
-        message: 'Already in favorites',
-        data: { favorited: true },
+        message: 'Ad already in favorites',
+        favorite: true,
       });
     }
 
@@ -87,8 +87,8 @@ export const addToFavorites = async (req, res, next) => {
     // Success response - ALWAYS use status 200 for success
     return res.status(200).json({
       success: true,
-      message: 'Ad added to favorites successfully',
-      data: { favorited: true },
+      message: 'Ad added to favorites',
+      favorite: true,
     });
   } catch (error) {
     next(error);
@@ -136,8 +136,8 @@ export const removeFromFavorites = async (req, res, next) => {
     if (!favoritesIds.includes(adId)) {
       return res.status(200).json({
         success: true,
-        message: 'Already removed',
-        data: { favorited: false },
+        message: 'Ad not in favorites',
+        favorite: false,
       });
     }
 
@@ -153,8 +153,8 @@ export const removeFromFavorites = async (req, res, next) => {
     // Success response - ALWAYS use status 200 for success
     return res.status(200).json({
       success: true,
-      message: 'Removed',
-      data: { favorited: false },
+      message: 'Ad removed from favorites',
+      favorite: false,
     });
   } catch (error) {
     next(error);
