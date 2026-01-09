@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import { AppError } from '../middlewares/error.middleware.js';
 import { sha256 } from '../utils/crypto.js';
+import { sendPasswordResetEmail } from '../services/email.service.js';
 
 /**
  * Generate JWT token for user
@@ -158,11 +159,15 @@ export const forgotPassword = async (req, res, next) => {
       // Save user with validateBeforeSave:false to skip validation
       await user.save({ validateBeforeSave: false });
 
-      // Build reset link
-      const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${resetToken}`;
+      // Build reset URL
+      const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password/${resetToken}`;
 
-      // For now: console.log the link (no real email yet)
-      console.log('Password reset link:', resetLink);
+      // Send password reset email
+      await sendPasswordResetEmail({
+        to: user.email,
+        name: user.name,
+        resetUrl,
+      });
     }
 
     // ALWAYS return 200 with same message to avoid user enumeration
