@@ -16,10 +16,14 @@ if (process.env.RESEND_API_KEY) {
  * @returns {Promise<{delivered: boolean}>} - Delivery status
  */
 export async function sendPasswordResetEmail({ to, name, resetUrl }) {
+  console.log('[EMAIL] hasKey:', !!process.env.RESEND_API_KEY);
+  console.log('[EMAIL] from:', process.env.EMAIL_FROM);
+  console.log('[EMAIL] to:', to);
+
   // If RESEND_API_KEY missing: console.log the resetUrl and return { delivered:false }
   if (!process.env.RESEND_API_KEY) {
     console.log('Password reset link (RESEND_API_KEY not configured):', resetUrl);
-    return { delivered: false };
+    return { delivered: false, provider: 'none' };
   }
 
   // Determine email FROM address
@@ -49,7 +53,7 @@ export async function sendPasswordResetEmail({ to, name, resetUrl }) {
 
   try {
     // Send email via Resend
-    await resend.emails.send({
+    const data = await resend.emails.send({
       from: emailFrom,
       to: [to],
       subject: 'Resetare parolă',
@@ -109,14 +113,18 @@ export async function sendPasswordResetEmail({ to, name, resetUrl }) {
       `,
     });
 
-    // Return success
-    return { delivered: true };
+    // On success: log and return
+    console.log('[EMAIL] sent OK:', data?.id || data);
+    return { delivered: true, provider: 'resend', id: data?.id || null };
   } catch (error) {
-    // On error: throw AppError
-    throw new AppError('Failed to send reset email', 500, {
+    // On error: log and return error result
+    console.log('[EMAIL] sent FAIL:', error?.message || error);
+    console.log('[EMAIL] sent FAIL full:', error);
+    return {
+      delivered: false,
       provider: 'resend',
-      error: error.message,
-    });
+      error: error?.message || 'unknown',
+    };
   }
 }
 
