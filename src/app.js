@@ -18,18 +18,24 @@ if (process.env.NODE_ENV !== 'production') {
 
 const app = express();
 
-// Trust proxy - Required for Railway/Vercel
+// Trust proxy - Required for Railway/Vercel (must be first)
 app.set('trust proxy', 1);
 
 // ============================================
-// CORS - Must be BEFORE rate limiters and routes
+// CORS - FIRST middleware (before everything else)
 // ============================================
 
-// Handle ALL preflight requests
-app.options('*', cors(corsOptions));
-
-// Apply CORS to all routes
+// Apply CORS to all routes (must be first to ensure headers are always set)
 app.use(cors(corsOptions));
+
+// Handle CORS preflight for Express v5 without wildcard routes
+// This must be BEFORE routes and BEFORE rate limiters
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    return cors(corsOptions)(req, res, next);
+  }
+  next();
+});
 
 // ============================================
 // SECURITY MIDDLEWARE (Order matters!)
