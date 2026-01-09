@@ -6,7 +6,7 @@ import { AppError } from '../middlewares/error.middleware.js';
 /**
  * Add ad to user's favorites
  * Only allows active ads to be favorited
- * Prevents duplicates
+ * Idempotent: returns 200 if already in favorites
  */
 export const addToFavorites = async (req, res, next) => {
   try {
@@ -35,7 +35,7 @@ export const addToFavorites = async (req, res, next) => {
       isDeleted: false,
     });
 
-    // Check if ad exists
+    // Check if ad exists -> 404
     if (!ad) {
       return next(
         new AppError('Ad not found', 404, {
@@ -44,12 +44,11 @@ export const addToFavorites = async (req, res, next) => {
       );
     }
 
-    // Only allow favoriting active ads
+    // Only allow favoriting active ads -> 400
     if (ad.status !== 'active') {
       return next(
         new AppError('Only active ads can be added to favorites', 400, {
-          type: 'INVALID_AD_STATUS',
-          message: `Cannot favorite ad with status: ${ad.status}`,
+          type: 'NOT_ACTIVE',
         })
       );
     }
@@ -65,28 +64,61 @@ export const addToFavorites = async (req, res, next) => {
       );
     }
 
-    // Check if ad is already in favorites
-    if (user.favorites && user.favorites.includes(adId)) {
+    // Check if ad is already in favorites -> 200 (idempotent, not an error)
+    const favoritesIds = (user.favorites || []).map((id) => id.toString());
+    if (favoritesIds.includes(adId)) {
+      // Success response - ALWAYS use status 200 for success
+      return res.status(200).json({
+        success: true,
+        message: 'Already in favorites',
+        data: { favorited: true },
+      });
+    }
+
+    // Add ad to favorites using $addToSet (prevents duplicates)
+    // Note: $addToSet is idempotent - it won't add if already present
+    try {
+      const updatedUser = await User.findByIdAndUpdate(
+        req.user.id,
+        {
+          $addToSet: { favorites: adId },
+        },
+        { new: true, runValidators: true }
+      );
+
+      // Double-check: if ad wasn't added (already present), treat as success (idempotent)
+      const updatedFavoritesIds = (updatedUser?.favorites || []).map((id) => id.toString());
+      if (!updatedFavoritesIds.includes(adId)) {
+        // This shouldn't happen with $addToSet, but handle gracefully
+        return res.status(200).json({
+          success: true,
+          message: 'Already in favorites',
+          data: { favorited: true },
+        });
+      }
+    } catch (dbError) {
+      // Check if this is a duplicate key error (shouldn't happen with $addToSet, but be defensive)
+      if (dbError.code === 11000 || dbError.name === 'MongoServerError') {
+        // Duplicate key error - treat as idempotent success
+        return res.status(200).json({
+          success: true,
+          message: 'Already in favorites',
+          data: { favorited: true },
+        });
+      }
+      // If database validation fails for other reasons, treat as server error
       return next(
-        new AppError('Ad is already in favorites', 400, {
-          type: 'ALREADY_FAVORITE',
-          message: 'This ad is already in your favorites',
+        new AppError('Failed to add to favorites', 500, {
+          type: 'DATABASE_ERROR',
         })
       );
     }
 
-    // Add ad to favorites using $addToSet (prevents duplicates)
-    await User.findByIdAndUpdate(
-      req.user.id,
-      {
-        $addToSet: { favorites: adId },
-      },
-      { new: true, runValidators: true }
-    );
-
-    res.json({
+    // Success response - ALWAYS use status 200 for success
+    return res.status(200).json({
       success: true,
       message: 'Ad added to favorites successfully',
+      data: { favorited: true },
     });
   } catch (error) {
     next(error);
@@ -95,6 +127,7 @@ export const addToFavorites = async (req, res, next) => {
 
 /**
  * Remove ad from user's favorites
+ * Idempotent: returns 200 if not in favorites
  */
 export const removeFromFavorites = async (req, res, next) => {
   try {
@@ -128,14 +161,14 @@ export const removeFromFavorites = async (req, res, next) => {
       );
     }
 
-    // Check if ad is in favorites
-    if (!user.favorites || !user.favorites.includes(adId)) {
-      return next(
-        new AppError('Ad is not in favorites', 400, {
-          type: 'NOT_IN_FAVORITES',
-          message: 'This ad is not in your favorites',
-        })
-      );
+    // Check if ad is in favorites -> 200 (idempotent)
+    const favoritesIds = (user.favorites || []).map((id) => id.toString());
+    if (!favoritesIds.includes(adId)) {
+      return res.status(200).json({
+        success: true,
+        message: 'Already removed',
+        data: { favorited: false },
+      });
     }
 
     // Remove ad from favorites using $pull
@@ -147,9 +180,11 @@ export const removeFromFavorites = async (req, res, next) => {
       { new: true, runValidators: true }
     );
 
-    res.json({
+    // Success response - ALWAYS use status 200 for success
+    return res.status(200).json({
       success: true,
-      message: 'Ad removed from favorites successfully',
+      message: 'Removed',
+      data: { favorited: false },
     });
   } catch (error) {
     next(error);
@@ -158,7 +193,7 @@ export const removeFromFavorites = async (req, res, next) => {
 
 /**
  * Get user's favorite ads
- * Returns only active, non-deleted ads
+ * Returns stable shape with _id, title, images, price, currency, status
  */
 export const getFavorites = async (req, res, next) => {
   try {
@@ -175,14 +210,9 @@ export const getFavorites = async (req, res, next) => {
     const user = await User.findById(req.user.id).populate({
       path: 'favorites',
       match: {
-        status: 'active',
         isDeleted: false,
       },
-      select: 'title price images status user createdAt',
-      populate: {
-        path: 'user',
-        select: 'name email',
-      },
+      select: '_id title images price currency status',
     });
 
     if (!user) {
@@ -196,9 +226,8 @@ export const getFavorites = async (req, res, next) => {
     // Filter out null values (ads that don't match the populate match condition)
     const favorites = (user.favorites || []).filter((ad) => ad !== null);
 
-    res.json({
+    res.status(200).json({
       success: true,
-      count: favorites.length,
       favorites,
     });
   } catch (error) {

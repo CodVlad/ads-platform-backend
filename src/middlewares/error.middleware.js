@@ -40,12 +40,12 @@ const handleValidationError = (error) => {
 // Handle JWT Errors
 const handleJWTError = (error) => {
   if (error instanceof jwt.JsonWebTokenError) {
-    return new AppError('Invalid token', 401, { type: 'JsonWebTokenError' });
+    return new AppError('Invalid token. Please login again', 401, { type: 'INVALID_TOKEN' });
   }
   if (error instanceof jwt.TokenExpiredError) {
-    return new AppError('Token expired', 401, { type: 'TokenExpiredError' });
+    return new AppError('Token expired. Please login again', 401, { type: 'TOKEN_EXPIRED' });
   }
-  return new AppError('Token error', 401, { type: error.name });
+  return new AppError('Authentication failed', 401, { type: 'AUTH_ERROR' });
 };
 
 // Global error handler middleware
@@ -115,16 +115,31 @@ export const errorHandler = (err, req, res, next) => {
     ? 'Something went wrong. Please try again later.'
     : message;
 
+  // Standardize response format
   const response = {
     success: false,
     message: errorMessage,
   };
 
-  // Only include details in development or for client errors (4xx)
-  if (!isProduction || statusCode < 500) {
-    if (details) {
+  // Standardize validation errors: ensure details.errors format
+  if (details) {
+    // If details has errors array, use it directly
+    if (details.errors && Array.isArray(details.errors)) {
+      response.details = { errors: details.errors };
+    }
+    // If details is an object with other properties, include them
+    else if (typeof details === 'object') {
       response.details = details;
     }
+  }
+
+  // Regression safeguard: Never send success:true with status >= 400
+  if (statusCode >= 400 && response.success !== false) {
+    response.success = false;
+    logger.warn('Error handler: Forced success to false for error status', {
+      statusCode,
+      originalSuccess: response.success,
+    });
   }
 
   // Never expose stack trace in production

@@ -22,7 +22,7 @@ export const protect = async (req, res, next) => {
   // Case 1: No token provided
   if (!token) {
     return next(
-      new AppError('Authentication required', 401, {
+      new AppError('Authentication required. Please provide a valid token', 401, {
         type: 'NO_TOKEN',
       })
     );
@@ -84,7 +84,7 @@ export const protect = async (req, res, next) => {
 
     // Other unexpected errors
     return next(
-      new AppError('Authentication failed', 401, {
+      new AppError('Authentication failed. Please login again', 401, {
         type: 'AUTH_ERROR',
       })
     );

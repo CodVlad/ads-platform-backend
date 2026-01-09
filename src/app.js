@@ -41,9 +41,6 @@ app.use(
 // 2. CORS - Strict origin whitelist
 app.use(cors(corsOptions));
 
-// Handle OPTIONS preflight requests early (before routes, auth, rate limiting)
-app.options(/^\/api\/.*/, cors(corsOptions));
-
 // 3. Body parser with size limit (10KB for JSON)
 // Note: File uploads are handled separately by multer with its own limits
 app.use(express.json({ limit: '10kb' }));

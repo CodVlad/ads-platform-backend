@@ -5,44 +5,42 @@ if (process.env.NODE_ENV !== 'production') {
   dotenv.config();
 }
 
-// CORS whitelist - strict origins only
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim())
-  : [];
+// Build allowed origins array
+const allowedOriginsList = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+];
 
-// Regex pattern for Vite dev server ports: localhost:5174, and 5175-5180
-const viteDevPortPattern = /^http:\/\/localhost:517[4-9]$|^http:\/\/localhost:5180$/;
+// Add FRONTEND_URL if it exists (for Vercel production)
+if (process.env.FRONTEND_URL) {
+  allowedOriginsList.push(process.env.FRONTEND_URL);
+}
 
-// Production frontend URL from environment
-const frontendUrl = process.env.FRONTEND_URL;
+// Add ALLOWED_ORIGINS if they exist (comma separated)
+if (process.env.ALLOWED_ORIGINS) {
+  const additionalOrigins = process.env.ALLOWED_ORIGINS.split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+  allowedOriginsList.push(...additionalOrigins);
+}
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (Postman, mobile apps, etc.)
+    // Allow requests with no origin (Postman, mobile apps, curl, etc.)
     if (!origin) {
       return callback(null, true);
     }
 
-    // Production: allow FRONTEND_URL if set
-    if (process.env.NODE_ENV === 'production' && frontendUrl && origin === frontendUrl) {
+    // Check if origin is in allowed list
+    if (allowedOriginsList.includes(origin)) {
       return callback(null, true);
     }
 
-    // Development: check explicit whitelist (from env var)
-    if (allowedOrigins.length > 0 && allowedOrigins.indexOf(origin) !== -1) {
-      return callback(null, true);
-    }
-
-    // Development: check if origin matches Vite dev server pattern (localhost only)
-    if (process.env.NODE_ENV !== 'production' && viteDevPortPattern.test(origin)) {
-      return callback(null, true);
-    }
-
-    // Return clean CORS decision (false) instead of throwing error
+    // Return CORS error for disallowed origins (browser will reject the request)
     callback(null, false);
   },
   credentials: true,
-  optionsSuccessStatus: 204, // Respond to preflight with 204
+  optionsSuccessStatus: 204,
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 };

@@ -1,8 +1,5 @@
 import mongoose from 'mongoose';
-import dotenv from 'dotenv';
 import logger from './logger.js';
-
-dotenv.config();
 
 /**
  * Connect to MongoDB Atlas using Mongoose

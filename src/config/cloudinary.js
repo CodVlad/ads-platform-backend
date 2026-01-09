@@ -1,8 +1,5 @@
 import { v2 as cloudinary } from 'cloudinary';
-import dotenv from 'dotenv';
 import logger from './logger.js';
-
-dotenv.config();
 
 /**
  * Configure Cloudinary with environment variables
