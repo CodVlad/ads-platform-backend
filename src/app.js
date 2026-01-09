@@ -18,9 +18,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 const app = express();
 
-// Trust proxy - Required when behind Railway/any reverse proxy
-// This allows express-rate-limit to correctly identify client IPs via X-Forwarded-For header
-app.set('trust proxy', 1);
+app.set('trust proxy', true);
 
 // ============================================
 // SECURITY MIDDLEWARE (Order matters!)
