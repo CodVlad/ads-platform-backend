@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import authRoutes from './routes/auth.routes.js';
 import adsRoutes from './routes/ads.routes.js';
 import favoritesRoutes from './routes/favorites.routes.js';
+import chatRoutes from './routes/chat.routes.js';
 import { errorHandler, notFound } from './middlewares/error.middleware.js';
 import { requestLogger } from './middlewares/logger.middleware.js';
 import { apiLimiter } from './middlewares/rateLimit.middleware.js';
@@ -106,6 +107,12 @@ app.use('/api/ads', apiLimiter, adsRoutes);
 // DELETE /api/favorites/:adId - Remove ad from favorites (protected)
 app.use('/api/favorites', apiLimiter, favoritesRoutes);
 
+// Chat routes
+// POST /api/chats/start - Start or get existing conversation (protected)
+// GET /api/chats - Get all conversations for current user (protected)
+// GET /api/chats/:id/messages - Get messages for a conversation (protected)
+// POST /api/chats/:id/messages - Send a message in a conversation (protected)
+app.use('/api/chats', apiLimiter, chatRoutes);
 
 // 404 handler - must be after all routes
 app.use(notFound);
