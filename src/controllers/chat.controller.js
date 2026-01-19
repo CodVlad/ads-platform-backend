@@ -1,4 +1,5 @@
 import Chat from '../models/Chat.js';
+import Message from '../models/Message.js';
 import Ad from '../models/Ad.js';
 import User from '../models/User.js';
 import mongoose from 'mongoose';
@@ -171,6 +172,187 @@ export const startChat = async (req, res, next) => {
       }
     }
 
+    next(error);
+  }
+};
+
+/**
+ * Get all chats for current user
+ * GET /api/chats
+ */
+export const getChats = async (req, res, next) => {
+  try {
+    const currentUserId = req.user._id;
+
+    // Find all chats where user is either userA or userB
+    const chats = await Chat.find({
+      $or: [{ userA: currentUserId }, { userB: currentUserId }],
+    })
+      .populate('ad', 'title price currency images status')
+      .populate('userA', 'name email')
+      .populate('userB', 'name email')
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      chats,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get messages for a chat
+ * GET /api/chats/:id/messages
+ */
+export const getMessages = async (req, res, next) => {
+  try {
+    const chatId = req.params.id;
+    const currentUserId = req.user._id;
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(chatId)) {
+      return next(
+        new AppError('Invalid chat ID format', 400, {
+          type: 'INVALID_ID',
+          field: 'id',
+        })
+      );
+    }
+
+    // Find chat and verify user is participant
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return next(
+        new AppError('Chat not found', 404, {
+          type: 'NOT_FOUND',
+          resource: 'Chat',
+        })
+      );
+    }
+
+    // Check if user is participant
+    const isParticipant =
+      chat.userA.toString() === currentUserId.toString() ||
+      chat.userB.toString() === currentUserId.toString();
+
+    if (!isParticipant) {
+      return next(
+        new AppError('Access denied. You are not a participant in this chat', 403, {
+          type: 'FORBIDDEN',
+        })
+      );
+    }
+
+    // Get messages sorted by createdAt ascending
+    const messages = await Message.find({ chat: chatId })
+      .populate('sender', 'name email')
+      .sort({ createdAt: 1 })
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      messages,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Send a message in a chat
+ * POST /api/chats/:id/messages
+ */
+export const sendMessage = async (req, res, next) => {
+  try {
+    const chatId = req.params.id;
+    const { text } = req.body;
+    const currentUserId = req.user._id;
+
+    // Validate chat ID format
+    if (!mongoose.Types.ObjectId.isValid(chatId)) {
+      return next(
+        new AppError('Invalid chat ID format', 400, {
+          type: 'INVALID_ID',
+          field: 'id',
+        })
+      );
+    }
+
+    // Validate text
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+      return next(
+        new AppError('Message text is required', 400, {
+          type: 'VALIDATION_ERROR',
+          field: 'text',
+        })
+      );
+    }
+
+    if (text.trim().length > 2000) {
+      return next(
+        new AppError('Message text cannot exceed 2000 characters', 400, {
+          type: 'VALIDATION_ERROR',
+          field: 'text',
+        })
+      );
+    }
+
+    // Find chat and verify user is participant
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return next(
+        new AppError('Chat not found', 404, {
+          type: 'NOT_FOUND',
+          resource: 'Chat',
+        })
+      );
+    }
+
+    // Check if user is participant
+    const isParticipant =
+      chat.userA.toString() === currentUserId.toString() ||
+      chat.userB.toString() === currentUserId.toString();
+
+    if (!isParticipant) {
+      return next(
+        new AppError('Access denied. You are not a participant in this chat', 403, {
+          type: 'FORBIDDEN',
+        })
+      );
+    }
+
+    // Create message
+    const message = await Message.create({
+      chat: chatId,
+      sender: currentUserId,
+      text: text.trim(),
+    });
+
+    // Populate sender
+    await message.populate('sender', 'name email');
+
+    // Update chat lastMessage and lastMessageAt
+    await Chat.findByIdAndUpdate(chatId, {
+      lastMessage: text.trim(),
+      lastMessageAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    res.status(201).json({
+      success: true,
+      message: {
+        _id: message._id,
+        chat: message.chat,
+        sender: message.sender,
+        text: message.text,
+        createdAt: message.createdAt,
+        updatedAt: message.updatedAt,
+      },
+    });
+  } catch (error) {
     next(error);
   }
 };

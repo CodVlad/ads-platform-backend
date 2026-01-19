@@ -2,10 +2,10 @@ import mongoose from 'mongoose';
 
 const messageSchema = new mongoose.Schema(
   {
-    conversation: {
+    chat: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Conversation',
-      required: [true, 'Conversation is required'],
+      ref: 'Chat',
+      required: [true, 'Chat is required'],
       index: true,
     },
     sender: {
@@ -28,7 +28,7 @@ const messageSchema = new mongoose.Schema(
 );
 
 // Compound index for efficient message queries
-messageSchema.index({ conversation: 1, createdAt: 1 });
+messageSchema.index({ chat: 1, createdAt: 1 });
 
 const Message = mongoose.model('Message', messageSchema);
 
