@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import { AppError } from '../middlewares/error.middleware.js';
 import cloudinary from '../config/cloudinary.js';
 import logger from '../config/logger.js';
+import { getCategoryTree, isValidCategory, isValidSubCategory } from '../utils/categoryValidator.js';
 
 /**
  * Escape regex special characters to prevent regex injection
@@ -15,6 +16,23 @@ const escapeRegex = (str) => {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
+/**
+ * Get all categories with subcategories
+ * GET /api/categories
+ */
+export const getCategories = async (req, res, next) => {
+  try {
+    const categories = getCategoryTree();
+
+    res.status(200).json({
+      success: true,
+      categories,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getAds = async (req, res, next) => {
   try {
     const {
@@ -22,6 +40,8 @@ export const getAds = async (req, res, next) => {
       minPrice,
       maxPrice,
       currency,
+      category,
+      subCategory,
       page,
       limit,
     } = req.query;
@@ -66,6 +86,63 @@ export const getAds = async (req, res, next) => {
     // Filter by currency (exact match if provided)
     if (currency && typeof currency === 'string' && currency.trim().length > 0) {
       query.currency = currency.trim();
+    }
+
+    // Filter by category and subCategory
+    // Validate category if provided
+    if (category) {
+      if (typeof category !== 'string' || category.trim().length === 0) {
+        return next(
+          new AppError('Invalid category parameter', 400, {
+            type: 'INVALID_CATEGORY',
+            field: 'category',
+          })
+        );
+      }
+
+      const categorySlug = category.trim();
+      if (!isValidCategory(categorySlug)) {
+        return next(
+          new AppError('Invalid category', 400, {
+            type: 'INVALID_CATEGORY',
+            field: 'category',
+          })
+        );
+      }
+
+      query.categorySlug = categorySlug;
+
+      // If subCategory is provided, validate it belongs to category
+      if (subCategory) {
+        if (typeof subCategory !== 'string' || subCategory.trim().length === 0) {
+          return next(
+            new AppError('Invalid subCategory parameter', 400, {
+              type: 'INVALID_SUBCATEGORY',
+              field: 'subCategory',
+            })
+          );
+        }
+
+        const subCategorySlug = subCategory.trim();
+        if (!isValidSubCategory(categorySlug, subCategorySlug)) {
+          return next(
+            new AppError('Invalid subcategory for the selected category', 400, {
+              type: 'INVALID_SUBCATEGORY',
+              field: 'subCategory',
+            })
+          );
+        }
+
+        query.subCategorySlug = subCategorySlug;
+      }
+    } else if (subCategory) {
+      // subCategory provided without category -> error
+      return next(
+        new AppError('Category must be provided when filtering by subcategory', 400, {
+          type: 'INVALID_FILTER',
+          field: 'subCategory',
+        })
+      );
     }
 
     // Pagination logic
@@ -267,12 +344,14 @@ export const createAd = async (req, res, next) => {
       description: req.body.description,
       price: req.body.price,
       currency: req.body.currency,
+      categorySlug: req.body.categorySlug,
+      subCategorySlug: req.body.subCategorySlug,
     };
 
     // Validate required fields
-    if (!allowedFields.title || !allowedFields.description || allowedFields.price === undefined) {
+    if (!allowedFields.title || !allowedFields.description || allowedFields.price === undefined || !allowedFields.categorySlug || !allowedFields.subCategorySlug) {
       return next(
-        new AppError('Title, description, and price are required', 400, {
+        new AppError('Title, description, price, category, and subcategory are required', 400, {
           type: 'MISSING_REQUIRED_FIELDS',
         })
       );
@@ -296,6 +375,8 @@ export const createAd = async (req, res, next) => {
       description: allowedFields.description.trim(),
       price: parseFloat(allowedFields.price),
       currency: allowedFields.currency || 'EUR',
+      categorySlug: allowedFields.categorySlug.trim(),
+      subCategorySlug: allowedFields.subCategorySlug.trim(),
       
       // Images from upload middleware (NOT from request body directly)
       images: images, // Array of Cloudinary URLs from uploadToCloudinary middleware
@@ -485,14 +566,16 @@ export const updateAd = async (req, res, next) => {
 
     // Extract ONLY allowed fields from request body
     // Protected fields (user, status, isDeleted, images) are NOT allowed
-    const { title, description, price, currency } = req.body;
+    const { title, description, price, currency, categorySlug, subCategorySlug } = req.body;
 
     // Check if at least one field is being updated (should be validated by middleware, but double-check)
     const hasUpdates =
       title !== undefined ||
       description !== undefined ||
       price !== undefined ||
-      currency !== undefined;
+      currency !== undefined ||
+      categorySlug !== undefined ||
+      subCategorySlug !== undefined;
 
     if (!hasUpdates) {
       return next(
@@ -523,6 +606,26 @@ export const updateAd = async (req, res, next) => {
     }
     if (currency !== undefined) {
       ad.currency = currency;
+    }
+    if (categorySlug !== undefined) {
+      ad.categorySlug = categorySlug.trim();
+    }
+    if (subCategorySlug !== undefined) {
+      ad.subCategorySlug = subCategorySlug.trim();
+    }
+
+    // Validate category/subcategory combination if both are being updated
+    if (categorySlug !== undefined || subCategorySlug !== undefined) {
+      const finalCategorySlug = categorySlug !== undefined ? categorySlug.trim() : ad.categorySlug;
+      const finalSubCategorySlug = subCategorySlug !== undefined ? subCategorySlug.trim() : ad.subCategorySlug;
+      
+      if (!isValidSubCategory(finalCategorySlug, finalSubCategorySlug)) {
+        return next(
+          new AppError('Invalid subcategory for the selected category', 400, {
+            type: 'INVALID_SUBCATEGORY',
+          })
+        );
+      }
     }
 
     // Save changes (Mongoose will validate schema constraints)

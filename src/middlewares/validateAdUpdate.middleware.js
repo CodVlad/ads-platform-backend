@@ -1,5 +1,6 @@
 import { body, validationResult } from 'express-validator';
 import { AppError } from './error.middleware.js';
+import { isValidCategory, isValidSubCategory } from '../utils/categoryValidator.js';
 
 // Middleware to handle validation errors
 const handleValidationErrors = (req, res, next) => {
@@ -42,7 +43,7 @@ const checkExtraFields = (allowedFields) => {
 
 // Check if at least one valid field is provided
 const checkAtLeastOneField = (req, res, next) => {
-  const allowedFields = ['title', 'description', 'price', 'currency'];
+  const allowedFields = ['title', 'description', 'price', 'currency', 'categorySlug', 'subCategorySlug'];
   const bodyKeys = Object.keys(req.body || {});
   const hasValidField = bodyKeys.some((key) => allowedFields.includes(key));
 
@@ -60,13 +61,13 @@ const checkAtLeastOneField = (req, res, next) => {
 
 /**
  * Validation rules for updating an ad
- * Only allows: title, description, price, currency
+ * Only allows: title, description, price, currency, categorySlug, subCategorySlug
  * All fields are optional (PATCH)
  * Does NOT allow: status, user, isDeleted, images
  */
 export const validateAdUpdate = [
-  // Check for extra fields first - only allow title, description, price, currency
-  checkExtraFields(['title', 'description', 'price', 'currency']),
+  // Check for extra fields first - only allow title, description, price, currency, categorySlug, subCategorySlug
+  checkExtraFields(['title', 'description', 'price', 'currency', 'categorySlug', 'subCategorySlug']),
 
   // Check that at least one field is provided
   checkAtLeastOneField,
@@ -100,6 +101,33 @@ export const validateAdUpdate = [
     .optional()
     .isIn(['EUR', 'USD', 'MDL'])
     .withMessage('Currency must be one of: EUR, USD, MDL'),
+
+  // Validate categorySlug (optional for update)
+  body('categorySlug')
+    .optional()
+    .trim()
+    .notEmpty()
+    .withMessage('Category cannot be empty')
+    .custom((value) => {
+      if (!isValidCategory(value)) {
+        throw new Error('Invalid category');
+      }
+      return true;
+    }),
+
+  // Validate subCategorySlug (optional for update, but must match category if provided)
+  body('subCategorySlug')
+    .optional()
+    .trim()
+    .notEmpty()
+    .withMessage('Subcategory cannot be empty')
+    .custom((value, { req }) => {
+      const categorySlug = req.body.categorySlug;
+      if (categorySlug && !isValidSubCategory(categorySlug, value)) {
+        throw new Error('Invalid subcategory for the selected category');
+      }
+      return true;
+    }),
 
   handleValidationErrors,
 ];

@@ -28,6 +28,16 @@ const adSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    categorySlug: {
+      type: String,
+      required: [true, 'Category is required'],
+      trim: true,
+    },
+    subCategorySlug: {
+      type: String,
+      required: [true, 'Subcategory is required'],
+      trim: true,
+    },
     status: {
       type: String,
       enum: ['draft', 'active', 'sold'],
@@ -55,6 +65,8 @@ adSchema.index({ createdAt: -1 });
 adSchema.index({ status: 1 });
 adSchema.index({ user: 1 }); // Index for user queries
 adSchema.index({ isDeleted: 1 }); // Index for soft delete queries
+// Compound index for category filtering
+adSchema.index({ categorySlug: 1, subCategorySlug: 1, status: 1, createdAt: -1 });
 
 // Prevent modification of protected fields
 adSchema.pre('save', function () {
@@ -73,7 +85,7 @@ adSchema.pre('save', function () {
 
 // Prevent setting unknown fields in update operations
 adSchema.pre(['updateOne', 'findOneAndUpdate'], function () {
-  const allowedFields = ['title', 'description', 'price', 'currency', 'images', 'status', 'isDeleted'];
+  const allowedFields = ['title', 'description', 'price', 'currency', 'images', 'status', 'isDeleted', 'categorySlug', 'subCategorySlug'];
   const update = this.getUpdate();
   
   if (update.$set) {

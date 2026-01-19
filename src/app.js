@@ -7,6 +7,7 @@ import authRoutes from './routes/auth.routes.js';
 import adsRoutes from './routes/ads.routes.js';
 import favoritesRoutes from './routes/favorites.routes.js';
 import chatRoutes from './routes/chat.routes.js';
+import categoriesRoutes from './routes/categories.routes.js';
 import { errorHandler, notFound } from './middlewares/error.middleware.js';
 import { requestLogger } from './middlewares/logger.middleware.js';
 import { apiLimiter } from './middlewares/rateLimit.middleware.js';
@@ -91,6 +92,10 @@ app.get('/', (req, res) => {
 // POST /api/auth/register - Register new user (no rate limit)
 // POST /api/auth/login - Login user (rate limited)
 app.use('/api/auth', authRoutes);
+
+// Categories routes (public, no rate limiting needed)
+// GET /api/categories - Get all categories with subcategories
+app.use('/api/categories', categoriesRoutes);
 
 // Ads routes
 // GET /api/ads - List ads (with filters, pagination)

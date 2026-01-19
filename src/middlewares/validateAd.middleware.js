@@ -1,5 +1,6 @@
 import { body, validationResult } from 'express-validator';
 import { AppError } from './error.middleware.js';
+import { isValidCategory, isValidSubCategory } from '../utils/categoryValidator.js';
 
 // Middleware to handle validation errors
 const handleValidationErrors = (req, res, next) => {
@@ -43,7 +44,7 @@ const checkExtraFields = (allowedFields) => {
 // Validation rules for create ad
 export const validateCreateAd = [
   // Check for extra fields first - status is NOT allowed at creation
-  checkExtraFields(['title', 'description', 'price', 'currency', 'images']),
+  checkExtraFields(['title', 'description', 'price', 'currency', 'images', 'categorySlug', 'subCategorySlug']),
   
   // Validate title
   body('title')
@@ -80,13 +81,41 @@ export const validateCreateAd = [
     .isArray()
     .withMessage('Images must be an array'),
   
+  // Validate categorySlug (required)
+  body('categorySlug')
+    .trim()
+    .notEmpty()
+    .withMessage('Category is required')
+    .custom((value) => {
+      if (!isValidCategory(value)) {
+        throw new Error('Invalid category');
+      }
+      return true;
+    }),
+  
+  // Validate subCategorySlug (required)
+  body('subCategorySlug')
+    .trim()
+    .notEmpty()
+    .withMessage('Subcategory is required')
+    .custom((value, { req }) => {
+      const categorySlug = req.body.categorySlug;
+      if (!categorySlug) {
+        throw new Error('Category must be provided before subcategory');
+      }
+      if (!isValidSubCategory(categorySlug, value)) {
+        throw new Error('Invalid subcategory for the selected category');
+      }
+      return true;
+    }),
+  
   handleValidationErrors,
 ];
 
 // Validation rules for update ad
 export const validateUpdateAd = [
   // Check for extra fields first
-  checkExtraFields(['title', 'description', 'price', 'currency', 'images', 'status']),
+  checkExtraFields(['title', 'description', 'price', 'currency', 'images', 'status', 'categorySlug', 'subCategorySlug']),
   
   // Validate title (optional for update)
   body('title')
@@ -135,6 +164,33 @@ export const validateUpdateAd = [
     .optional()
     .isIn(['draft', 'active', 'sold'])
     .withMessage('Status must be one of: draft, active, sold'),
+  
+  // Validate categorySlug (optional for update)
+  body('categorySlug')
+    .optional()
+    .trim()
+    .notEmpty()
+    .withMessage('Category cannot be empty')
+    .custom((value) => {
+      if (!isValidCategory(value)) {
+        throw new Error('Invalid category');
+      }
+      return true;
+    }),
+  
+  // Validate subCategorySlug (optional for update, but must match category if provided)
+  body('subCategorySlug')
+    .optional()
+    .trim()
+    .notEmpty()
+    .withMessage('Subcategory cannot be empty')
+    .custom((value, { req }) => {
+      const categorySlug = req.body.categorySlug;
+      if (categorySlug && !isValidSubCategory(categorySlug, value)) {
+        throw new Error('Invalid subcategory for the selected category');
+      }
+      return true;
+    }),
   
   handleValidationErrors,
 ];
