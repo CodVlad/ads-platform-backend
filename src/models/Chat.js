@@ -5,7 +5,7 @@ const chatSchema = new mongoose.Schema(
     ad: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Ad',
-      required: [true, 'Ad is required'],
+      default: null,
     },
     userA: {
       type: mongoose.Schema.Types.ObjectId,

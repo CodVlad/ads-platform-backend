@@ -13,18 +13,18 @@ export const startChat = async (req, res, next) => {
     const currentUserId = req.user._id;
     const { adId, receiverId } = req.body;
 
-    // Validate required fields
-    if (!adId || !receiverId) {
+    // Validate required fields - receiverId is required, adId is optional
+    if (!receiverId) {
       return next(
-        new AppError('adId and receiverId are required', 400, {
+        new AppError('receiverId is required', 400, {
           type: 'VALIDATION_ERROR',
-          field: !adId ? 'adId' : 'receiverId',
+          field: 'receiverId',
         })
       );
     }
 
     // Validate ObjectId formats
-    if (!mongoose.Types.ObjectId.isValid(adId)) {
+    if (adId && !mongoose.Types.ObjectId.isValid(adId)) {
       return next(
         new AppError('Invalid adId format', 400, {
           type: 'INVALID_ID',
@@ -62,15 +62,17 @@ export const startChat = async (req, res, next) => {
       );
     }
 
-    // Ensure ad exists
-    const ad = await Ad.findById(adId);
-    if (!ad) {
-      return next(
-        new AppError('Ad not found', 404, {
-          type: 'NOT_FOUND',
-          resource: 'Ad',
-        })
-      );
+    // Ensure ad exists if adId is provided
+    if (adId) {
+      const ad = await Ad.findById(adId);
+      if (!ad) {
+        return next(
+          new AppError('Ad not found', 404, {
+            type: 'NOT_FOUND',
+            resource: 'Ad',
+          })
+        );
+      }
     }
 
     // Compute sorted pair (userA < userB lexicographically)
@@ -78,12 +80,13 @@ export const startChat = async (req, res, next) => {
       .sort((a, b) => a.localeCompare(b))
       .map((id) => new mongoose.Types.ObjectId(id));
 
+    // Build query - if adId is provided, include it; otherwise find chat without ad (null or undefined)
+    const query = adId
+      ? { ad: adId, userA, userB }
+      : { userA, userB, $or: [{ ad: null }, { ad: { $exists: false } }] };
+
     // Find existing chat
-    let chat = await Chat.findOne({
-      ad: adId,
-      userA,
-      userB,
-    })
+    let chat = await Chat.findOne(query)
       .populate('ad', 'title price currency images status')
       .populate('userA', 'name email')
       .populate('userB', 'name email');
@@ -105,9 +108,9 @@ export const startChat = async (req, res, next) => {
       });
     }
 
-    // Create new chat
+    // Create new chat (adId can be null/undefined if not provided)
     chat = await Chat.create({
-      ad: adId,
+      ad: adId || null,
       userA,
       userB,
     });
@@ -142,11 +145,11 @@ export const startChat = async (req, res, next) => {
         .sort((a, b) => a.localeCompare(b))
         .map((id) => new mongoose.Types.ObjectId(id));
 
-      const existingChat = await Chat.findOne({
-        ad: adId,
-        userA,
-        userB,
-      })
+      const query = adId
+        ? { ad: adId, userA, userB }
+        : { userA, userB, $or: [{ ad: null }, { ad: { $exists: false } }] };
+
+      const existingChat = await Chat.findOne(query)
         .populate('ad', 'title price currency images status')
         .populate('userA', 'name email')
         .populate('userB', 'name email');
