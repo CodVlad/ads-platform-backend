@@ -12,13 +12,25 @@ const router = express.Router();
 // All routes require authentication
 router.use(protect);
 
+// Debug: Log route registration (development only)
+if (process.env.NODE_ENV !== 'production') {
+  console.log('[CHAT ROUTES] Registering chat routes...');
+}
+
 /**
  * @route   POST /api/chats/start
  * @desc    Start or get existing chat for an ad
  * @access  Private
  * @middleware protect - JWT authentication required
+ * 
+ * IMPORTANT: This route MUST be defined before /:id routes to avoid route conflicts
  */
 router.post('/start', startChat);
+
+// Debug: Log route registration (development only)
+if (process.env.NODE_ENV !== 'production') {
+  console.log('[CHAT ROUTES] POST /api/chats/start registered');
+}
 
 /**
  * @route   GET /api/chats

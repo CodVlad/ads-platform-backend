@@ -112,6 +112,7 @@ app.use('/api/favorites', apiLimiter, favoritesRoutes);
 // GET /api/chats - Get all conversations for current user (protected)
 // GET /api/chats/:id/messages - Get messages for a conversation (protected)
 // POST /api/chats/:id/messages - Send a message in a conversation (protected)
+// IMPORTANT: Mount chat routes BEFORE 404 handler
 app.use('/api/chats', apiLimiter, chatRoutes);
 
 // 404 handler - must be after all routes
