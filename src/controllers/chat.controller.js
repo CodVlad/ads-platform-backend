@@ -11,6 +11,15 @@ import { AppError } from '../middlewares/error.middleware.js';
  */
 export const startChat = async (req, res, next) => {
   try {
+    // Ensure req.user exists and has _id
+    if (!req.user || !req.user._id) {
+      return next(
+        new AppError('Authentication required', 401, {
+          type: 'AUTH_REQUIRED',
+        })
+      );
+    }
+
     const currentUserId = req.user._id;
     const { adId, receiverId } = req.body;
 
@@ -81,18 +90,22 @@ export const startChat = async (req, res, next) => {
       .sort((a, b) => a.localeCompare(b))
       .map((id) => new mongoose.Types.ObjectId(id));
 
-    // Build query - if adId is provided, include it; otherwise find chat without ad (null or undefined)
+    // Build query - if adId is provided, include it; otherwise find chat without ad (null)
     const query = adId
       ? { ad: adId, userA, userB }
-      : { userA, userB, $or: [{ ad: null }, { ad: { $exists: false } }] };
+      : { userA, userB, ad: null };
 
     // Find existing chat
-    let chat = await Chat.findOne(query)
-      .populate('ad', 'title price currency images status')
-      .populate('userA', 'name email')
-      .populate('userB', 'name email');
-
+    let chat = await Chat.findOne(query);
+    
     if (chat) {
+      // Populate fields
+      await chat.populate([
+        { path: 'ad', select: 'title price currency images status', strictPopulate: false },
+        { path: 'userA', select: 'name email' },
+        { path: 'userB', select: 'name email' },
+      ]);
+
       // Return existing chat
       return res.status(200).json({
         success: true,
@@ -118,7 +131,7 @@ export const startChat = async (req, res, next) => {
 
     // Populate after creation
     await chat.populate([
-      { path: 'ad', select: 'title price currency images status' },
+      { path: 'ad', select: 'title price currency images status', strictPopulate: false },
       { path: 'userA', select: 'name email' },
       { path: 'userB', select: 'name email' },
     ]);
@@ -148,12 +161,17 @@ export const startChat = async (req, res, next) => {
 
       const query = adId
         ? { ad: adId, userA, userB }
-        : { userA, userB, $or: [{ ad: null }, { ad: { $exists: false } }] };
+        : { userA, userB, ad: null };
 
-      const existingChat = await Chat.findOne(query)
-        .populate('ad', 'title price currency images status')
-        .populate('userA', 'name email')
-        .populate('userB', 'name email');
+      const existingChat = await Chat.findOne(query);
+      
+      if (existingChat) {
+        await existingChat.populate([
+          { path: 'ad', select: 'title price currency images status', strictPopulate: false },
+          { path: 'userA', select: 'name email' },
+          { path: 'userB', select: 'name email' },
+        ]);
+      }
 
       if (existingChat) {
         return res.status(200).json({
@@ -182,6 +200,15 @@ export const startChat = async (req, res, next) => {
  */
 export const getChats = async (req, res, next) => {
   try {
+    // Ensure req.user exists and has _id
+    if (!req.user || !req.user._id) {
+      return next(
+        new AppError('Authentication required', 401, {
+          type: 'AUTH_REQUIRED',
+        })
+      );
+    }
+
     const currentUserId = req.user._id;
 
     // Find all chats where user is either userA or userB
@@ -209,6 +236,15 @@ export const getChats = async (req, res, next) => {
  */
 export const getMessages = async (req, res, next) => {
   try {
+    // Ensure req.user exists and has _id
+    if (!req.user || !req.user._id) {
+      return next(
+        new AppError('Authentication required', 401, {
+          type: 'AUTH_REQUIRED',
+        })
+      );
+    }
+
     const chatId = req.params.id;
     const currentUserId = req.user._id;
 
@@ -267,6 +303,15 @@ export const getMessages = async (req, res, next) => {
  */
 export const sendMessage = async (req, res, next) => {
   try {
+    // Ensure req.user exists and has _id
+    if (!req.user || !req.user._id) {
+      return next(
+        new AppError('Authentication required', 401, {
+          type: 'AUTH_REQUIRED',
+        })
+      );
+    }
+
     const chatId = req.params.id;
     const { text } = req.body;
     const currentUserId = req.user._id;

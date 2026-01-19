@@ -34,11 +34,14 @@ const chatSchema = new mongoose.Schema(
 // Ensure userA and userB are always sorted lexicographically
 chatSchema.pre('save', function (next) {
   if (this.isModified('userA') || this.isModified('userB') || this.isNew) {
-    const [a, b] = [this.userA.toString(), this.userB.toString()].sort((x, y) =>
-      x.localeCompare(y)
-    );
-    this.userA = new mongoose.Types.ObjectId(a);
-    this.userB = new mongoose.Types.ObjectId(b);
+    // Only sort if both userA and userB exist
+    if (this.userA && this.userB) {
+      const [a, b] = [this.userA.toString(), this.userB.toString()].sort((x, y) =>
+        x.localeCompare(y)
+      );
+      this.userA = new mongoose.Types.ObjectId(a);
+      this.userB = new mongoose.Types.ObjectId(b);
+    }
   }
   next();
 });
