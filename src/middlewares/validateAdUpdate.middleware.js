@@ -1,6 +1,7 @@
 import { body, validationResult } from 'express-validator';
 import { AppError } from './error.middleware.js';
 import { isValidCategorySlug, isValidSubcategorySlug } from '../constants/categories.js';
+import { validateAttributes } from '../utils/attributeValidator.js';
 
 // Middleware to handle validation errors
 const handleValidationErrors = (req, res, next) => {
@@ -43,7 +44,7 @@ const checkExtraFields = (allowedFields) => {
 
 // Check if at least one valid field is provided
 const checkAtLeastOneField = (req, res, next) => {
-  const allowedFields = ['title', 'description', 'price', 'currency', 'categorySlug', 'subCategorySlug'];
+  const allowedFields = ['title', 'description', 'price', 'currency', 'categorySlug', 'subCategorySlug', 'attributes'];
   const bodyKeys = Object.keys(req.body || {});
   const hasValidField = bodyKeys.some((key) => allowedFields.includes(key));
 
@@ -61,13 +62,13 @@ const checkAtLeastOneField = (req, res, next) => {
 
 /**
  * Validation rules for updating an ad
- * Only allows: title, description, price, currency, categorySlug, subCategorySlug
+ * Only allows: title, description, price, currency, categorySlug, subCategorySlug, attributes
  * All fields are optional (PATCH)
  * Does NOT allow: status, user, isDeleted, images
  */
 export const validateAdUpdate = [
-  // Check for extra fields first - only allow title, description, price, currency, categorySlug, subCategorySlug
-  checkExtraFields(['title', 'description', 'price', 'currency', 'categorySlug', 'subCategorySlug']),
+  // Check for extra fields first - only allow title, description, price, currency, categorySlug, subCategorySlug, attributes
+  checkExtraFields(['title', 'description', 'price', 'currency', 'categorySlug', 'subCategorySlug', 'attributes']),
 
   // Check that at least one field is provided
   checkAtLeastOneField,
@@ -125,6 +126,26 @@ export const validateAdUpdate = [
       const categorySlug = req.body.categorySlug;
       if (categorySlug && !isValidSubcategorySlug(categorySlug, value)) {
         throw new Error('Invalid subcategory for the selected category');
+      }
+      return true;
+    }),
+
+  // Validate attributes (optional for update)
+  body('attributes')
+    .optional()
+    .isObject()
+    .withMessage('Attributes must be an object')
+    .custom((attributes, { req }) => {
+      // Use categorySlug from body if provided, otherwise we can't validate
+      const categorySlug = req.body.categorySlug;
+      if (!categorySlug) {
+        // If categorySlug is not being updated, we'd need to get it from the existing ad
+        // For now, skip validation if categorySlug is not in the update
+        return true;
+      }
+      const validation = validateAttributes(categorySlug, attributes);
+      if (!validation.valid) {
+        throw new Error(`Invalid attributes for category '${categorySlug}': ${validation.invalidKeys.join(', ')}`);
       }
       return true;
     }),

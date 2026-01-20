@@ -46,6 +46,13 @@ export const getAds = async (req, res, next) => {
       sort,
       page,
       limit,
+      // Attribute filters
+      brand,
+      condition,
+      year,
+      rooms,
+      areaMin,
+      areaMax,
     } = req.query;
 
     // Build query object - only active, non-deleted ads
@@ -154,6 +161,56 @@ export const getAds = async (req, res, next) => {
 
         query.subCategorySlug = subCategorySlugTrimmed;
       }
+    }
+
+    // Filter by attributes
+    // Build attributes query object
+    const attributesQuery = {};
+    if (brand && typeof brand === 'string' && brand.trim().length > 0) {
+      attributesQuery['attributes.brand'] = brand.trim();
+    }
+    if (condition && typeof condition === 'string' && condition.trim().length > 0) {
+      attributesQuery['attributes.condition'] = condition.trim();
+    }
+    if (year && typeof year === 'string' && year.trim().length > 0) {
+      // Year can be a string or number, validate it's a valid year
+      const yearNum = parseInt(year.trim(), 10);
+      if (!isNaN(yearNum) && yearNum > 1900 && yearNum <= new Date().getFullYear() + 1) {
+        attributesQuery['attributes.year'] = yearNum.toString();
+      }
+    }
+    if (rooms && typeof rooms === 'string' && rooms.trim().length > 0) {
+      const roomsNum = parseInt(rooms.trim(), 10);
+      if (!isNaN(roomsNum) && roomsNum > 0) {
+        attributesQuery['attributes.rooms'] = roomsNum.toString();
+      }
+    }
+    // Area range filter
+    // For MVP: Since attributes are stored as Map<String>, use $expr for numeric comparison
+    const areaConditions = [];
+    if (areaMin) {
+      const areaMinNum = parseFloat(areaMin);
+      if (!isNaN(areaMinNum) && areaMinNum >= 0) {
+        areaConditions.push({ $gte: [{ $toDouble: { $ifNull: ['$attributes.area', '0'] } }, areaMinNum] });
+      }
+    }
+    if (areaMax) {
+      const areaMaxNum = parseFloat(areaMax);
+      if (!isNaN(areaMaxNum) && areaMaxNum >= 0) {
+        areaConditions.push({ $lte: [{ $toDouble: { $ifNull: ['$attributes.area', '0'] } }, areaMaxNum] });
+      }
+    }
+    if (areaConditions.length > 0) {
+      if (areaConditions.length === 1) {
+        query.$expr = areaConditions[0];
+      } else {
+        query.$expr = { $and: areaConditions };
+      }
+    }
+
+    // Merge attributes query into main query
+    if (Object.keys(attributesQuery).length > 0) {
+      Object.assign(query, attributesQuery);
     }
 
     // Pagination logic
@@ -396,6 +453,7 @@ export const createAd = async (req, res, next) => {
       currency: req.body.currency,
       categorySlug: req.body.categorySlug,
       subCategorySlug: req.body.subCategorySlug, // Optional
+      attributes: req.body.attributes, // Optional
     };
 
     // Validate required fields
@@ -427,6 +485,7 @@ export const createAd = async (req, res, next) => {
       currency: allowedFields.currency || 'EUR',
       categorySlug: allowedFields.categorySlug.trim(),
       ...(allowedFields.subCategorySlug && { subCategorySlug: allowedFields.subCategorySlug.trim() }),
+      ...(allowedFields.attributes && { attributes: allowedFields.attributes }),
       
       // Images from upload middleware (NOT from request body directly)
       images: images, // Array of Cloudinary URLs from uploadToCloudinary middleware
@@ -616,7 +675,7 @@ export const updateAd = async (req, res, next) => {
 
     // Extract ONLY allowed fields from request body
     // Protected fields (user, status, isDeleted, images) are NOT allowed
-    const { title, description, price, currency, categorySlug, subCategorySlug } = req.body;
+    const { title, description, price, currency, categorySlug, subCategorySlug, attributes } = req.body;
 
     // Check if at least one field is being updated (should be validated by middleware, but double-check)
     const hasUpdates =
@@ -625,7 +684,8 @@ export const updateAd = async (req, res, next) => {
       price !== undefined ||
       currency !== undefined ||
       categorySlug !== undefined ||
-      subCategorySlug !== undefined;
+      subCategorySlug !== undefined ||
+      attributes !== undefined;
 
     if (!hasUpdates) {
       return next(
@@ -662,6 +722,15 @@ export const updateAd = async (req, res, next) => {
     }
     if (subCategorySlug !== undefined) {
       ad.subCategorySlug = subCategorySlug.trim();
+    }
+    if (attributes !== undefined) {
+      // Convert plain object to Map if needed, or just set it
+      if (attributes && typeof attributes === 'object' && !Array.isArray(attributes)) {
+        // Mongoose Map can be set directly from object
+        ad.attributes = attributes;
+      } else if (attributes === null) {
+        ad.attributes = {};
+      }
     }
 
     // Validate category/subcategory combination if both are being updated

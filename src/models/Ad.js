@@ -38,6 +38,11 @@ const adSchema = new mongoose.Schema(
       required: false, // Optional
       trim: true,
     },
+    attributes: {
+      type: Map,
+      of: String,
+      default: {},
+    },
     status: {
       type: String,
       enum: ['draft', 'active', 'sold'],
@@ -85,7 +90,7 @@ adSchema.pre('save', function () {
 
 // Prevent setting unknown fields in update operations
 adSchema.pre(['updateOne', 'findOneAndUpdate'], function () {
-  const allowedFields = ['title', 'description', 'price', 'currency', 'images', 'status', 'isDeleted', 'categorySlug', 'subCategorySlug'];
+  const allowedFields = ['title', 'description', 'price', 'currency', 'images', 'status', 'isDeleted', 'categorySlug', 'subCategorySlug', 'attributes'];
   const update = this.getUpdate();
   
   if (update.$set) {
