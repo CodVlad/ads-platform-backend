@@ -3,6 +3,12 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
 
+// Load .env file FIRST before any process.env usage (only in development)
+// This ensures all environment variables are available when other modules load
+if (process.env.NODE_ENV !== 'production') {
+  dotenv.config();
+}
+
 import authRoutes from './routes/auth.routes.js';
 import adsRoutes from './routes/ads.routes.js';
 import favoritesRoutes from './routes/favorites.routes.js';
@@ -24,11 +30,6 @@ if (process.env.NODE_ENV !== 'production') {
   } catch (error) {
     console.warn('[DEBUG] Could not load debug routes:', error.message);
   }
-}
-
-// Only load .env file in development (not required in production if env vars are provided)
-if (process.env.NODE_ENV !== 'production') {
-  dotenv.config();
 }
 
 const app = express();

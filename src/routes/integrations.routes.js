@@ -11,6 +11,9 @@ const router = express.Router();
  */
 router.post('/make/test', async (req, res) => {
   try {
+    console.log('[MAKE_TEST] received request');
+    console.log('[MAKE_TEST] req.body:', JSON.stringify(req.body, null, 2));
+    
     const { email, resetUrl } = req.body;
 
     // Validate required fields
@@ -40,11 +43,12 @@ router.post('/make/test', async (req, res) => {
     // Send to Make webhook
     const result = await sendToMakeWebhook(payload);
 
-    // Return result
+    // Return result with webhookUrlUsed
     res.status(200).json({
       success: result.ok,
       status: result.status,
       responsePreview: result.responsePreview,
+      webhookUrlUsed: result.webhookUrlUsed || null,
       ...(result.error ? { error: result.error } : {}),
     });
   } catch (error) {

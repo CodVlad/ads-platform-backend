@@ -20,18 +20,17 @@ const getWebhookUrl = () => {
 /**
  * Send payload to Make webhook with retry logic
  * @param {Object} payload - Payload to send to webhook
- * @returns {Promise<{ok: boolean, status: number|null, responsePreview: string, error: string|null}>} - Webhook response details
+ * @returns {Promise<{ok: boolean, status: number|null, responsePreview: string, error: string|null, webhookUrlUsed?: string}>} - Webhook response details
  */
 export async function sendToMakeWebhook(payload) {
   const webhookUrl = getWebhookUrl();
   
-  // Log sending
-  console.log('[MAKE] sending ->', webhookUrl);
-  console.log('[MAKE] payload ->', JSON.stringify(payload, null, 2));
+  // Log exact webhook URL used
+  console.log('[MAKE] webhook URL used:', webhookUrl);
+  console.log('[MAKE] payload:', JSON.stringify(payload, null, 2));
   
   // Attempt to send (with retry)
   let lastError = null;
-  let lastResult = null;
   
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0) {
@@ -65,16 +64,17 @@ export async function sendToMakeWebhook(payload) {
         responsePreview = '[Unable to read response body]';
       }
       
-      // Log response status and preview
-      console.log('[MAKE] status ->', response.status);
-      console.log('[MAKE] responsePreview ->', responsePreview);
+      // Log response status and body preview
+      console.log('[MAKE] response status:', response.status);
+      console.log('[MAKE] response body preview:', responsePreview);
       
-      // Return success result
+      // Return success result with webhookUrlUsed
       return {
         ok: response.ok,
         status: response.status,
         responsePreview,
         error: null,
+        webhookUrlUsed: webhookUrl,
       };
     } catch (error) {
       // Clear timeout if still pending
@@ -90,11 +90,18 @@ export async function sendToMakeWebhook(payload) {
         error.code === 'ECONNREFUSED' ||
         error.code === 'ETIMEDOUT';
       
-      // Log error
+      // Log error with details
       if (error.name === 'AbortError') {
-        console.error('[MAKE] error -> Request timeout after 8 seconds');
+        console.error('[MAKE] error: Request timeout after 8 seconds');
       } else {
-        console.error('[MAKE] error ->', error.message || 'Unknown error');
+        console.error('[MAKE] error:', error.message || 'Unknown error');
+      }
+      
+      // Log retry decision
+      if (attempt === 0 && isRetryable) {
+        console.log('[MAKE] will retry: YES (retryable error detected)');
+      } else if (attempt === 0 && !isRetryable) {
+        console.log('[MAKE] will retry: NO (non-retryable error)');
       }
       
       // If not retryable or last attempt, return error
@@ -104,10 +111,12 @@ export async function sendToMakeWebhook(payload) {
           status: null,
           responsePreview: '',
           error: error.message || 'Unknown error',
+          webhookUrlUsed: webhookUrl,
         };
       }
       
       // Wait a bit before retry (500ms)
+      console.log('[MAKE] waiting 500ms before retry...');
       await new Promise(resolve => setTimeout(resolve, 500));
     }
   }
@@ -118,6 +127,7 @@ export async function sendToMakeWebhook(payload) {
     status: null,
     responsePreview: '',
     error: lastError?.message || 'Request failed after retries',
+    webhookUrlUsed: webhookUrl,
   };
 }
 
@@ -148,3 +158,34 @@ export async function sendForgotPasswordToMake({ to, name, resetUrl }) {
     bodyPreview: result.responsePreview,
   };
 }
+
+/**
+ * HOW TO TEST:
+ * 
+ * 1. Test endpoint (recommended first):
+ *    POST http://localhost:5001/api/integrations/make/test
+ *    Body (JSON):
+ *    {
+ *      "email": "test@gmail.com",
+ *      "resetUrl": "https://example.com/#/reset-password/TEST"
+ *    }
+ *    Expected: Check logs for [MAKE] entries and Make scenario should receive bundle
+ * 
+ * 2. Forgot password endpoint (with existing user):
+ *    POST http://localhost:5001/api/auth/forgot-password
+ *    Body (JSON):
+ *    {
+ *      "email": "existing-user@example.com"
+ *    }
+ *    Expected: Check logs for [FORGOT] and [MAKE] entries, Make should receive forgot_password event
+ * 
+ * 3. Debug mode (dev only, if MAKE_DEBUG_ALWAYS=true):
+ *    POST http://localhost:5001/api/auth/forgot-password
+ *    Body (JSON):
+ *    {
+ *      "email": "non-existent@example.com"
+ *    }
+ *    Expected: Make should receive forgot_password_debug_no_user event even if user doesn't exist
+ * 
+ * All logs are prefixed with [MAKE] for easy filtering.
+ */

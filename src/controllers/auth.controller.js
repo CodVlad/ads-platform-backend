@@ -201,6 +201,28 @@ export const forgotPassword = async (req, res, next) => {
         // Additional error handling (though service already handles it)
         console.error('[FORGOT] Make webhook error:', error.message);
       }
+    } else {
+      // User doesn't exist - check if we should send debug event (dev only)
+      const shouldSendDebug = 
+        process.env.NODE_ENV !== 'production' && 
+        process.env.MAKE_DEBUG_ALWAYS === 'true';
+      
+      if (shouldSendDebug) {
+        console.log('[FORGOT] User does not exist, but MAKE_DEBUG_ALWAYS=true - sending debug event to Make');
+        try {
+          const debugPayload = {
+            event: 'forgot_password_debug_no_user',
+            email: email.toLowerCase(),
+            timestamp: new Date().toISOString(),
+            env: process.env.NODE_ENV || 'development',
+          };
+          
+          const makeResult = await sendToMakeWebhook(debugPayload);
+          console.log('[FORGOT] debug makeResult:', makeResult);
+        } catch (error) {
+          console.error('[FORGOT] Make webhook debug error:', error.message);
+        }
+      }
     }
 
     // ALWAYS return 200 with same message to avoid user enumeration
