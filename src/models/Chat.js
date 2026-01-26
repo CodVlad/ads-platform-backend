@@ -38,7 +38,9 @@ const chatSchema = new mongoose.Schema(
 // Indexes for efficient queries
 chatSchema.index({ participants: 1 });
 chatSchema.index({ ad: 1 });
-chatSchema.index({ ad: 1, participants: 1 }); // Compound index for finding chats by ad and participants
+// Compound unique index: one chat per ad + participants combination
+// This prevents duplicate chats for the same ad and participants
+chatSchema.index({ ad: 1, participants: 1 }, { unique: true });
 
 const Chat = mongoose.model('Chat', chatSchema);
 

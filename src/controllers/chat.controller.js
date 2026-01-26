@@ -17,32 +17,43 @@ import logger from '../config/logger.js';
  *     Content-Type: application/json
  *   Body:
  *     {
- *       "receiverId": "string (ObjectId)",
- *       "adId": "string (ObjectId)" // or "ad" as fallback
+ *       "receiverId": "string (ObjectId) - required",
+ *       "ad": "string (ObjectId) - required" // or "adId" as fallback
  *     }
  * 
- * Response (200/201):
+ * Response (200 - Chat already exists):
  *   {
  *     "success": true,
- *     "data": {
- *       "chat": {
- *         "_id": "...",
- *         "ad": "...",
- *         "participants": [...],
- *         "lastMessage": null,
- *         "createdAt": "...",
- *         "updatedAt": "..."
- *       }
+ *     "message": "Chat already exists",
+ *     "chat": {
+ *       "_id": "...",
+ *       "ad": "...",
+ *       "participants": [...],
+ *       "lastMessage": null,
+ *       "createdAt": "...",
+ *       "updatedAt": "..."
+ *     }
+ *   }
+ * 
+ * Response (201 - Chat created):
+ *   {
+ *     "success": true,
+ *     "message": "Chat created",
+ *     "chat": {
+ *       "_id": "...",
+ *       "ad": "...",
+ *       "participants": [...],
+ *       "lastMessage": null,
+ *       "createdAt": "...",
+ *       "updatedAt": "..."
  *     }
  *   }
  * 
  * Response (400):
  *   {
- *     "error": {
- *       "code": "VALIDATION_ERROR|INVALID_ID|RECEIVER_MISMATCH",
- *       "message": "...",
- *       "details": { "field": "...", ... }
- *     }
+ *     "success": false,
+ *     "message": "...",
+ *     "details": { "field": "...", "value": "..." }
  *   }
  * 
  * @example
@@ -52,28 +63,36 @@ import logger from '../config/logger.js';
  *   -d '{"email":"user@example.com","password":"password123"}' \
  *   | jq -r '.data.token')
  * 
- * # Start chat
+ * # Start chat (first request - creates new chat)
  * curl -X POST http://localhost:5001/api/chats/start \
  *   -H "Content-Type: application/json" \
  *   -H "Authorization: Bearer $TOKEN" \
  *   -d '{
  *     "receiverId": "507f1f77bcf86cd799439011",
- *     "adId": "507f191e810c19729de860ea"
+ *     "ad": "507f191e810c19729de860ea"
  *   }'
  * 
- * # Expected success response (200/201):
+ * # Expected response (201):
  * # {
  * #   "success": true,
- * #   "data": {
- * #     "chat": {
- * #       "_id": "...",
- * #       "ad": "...",
- * #       "participants": [...],
- * #       "lastMessage": null,
- * #       "createdAt": "...",
- * #       "updatedAt": "..."
- * #     }
- * #   }
+ * #   "message": "Chat created",
+ * #   "chat": { ... }
+ * # }
+ * 
+ * # Repeat same request (returns existing chat)
+ * curl -X POST http://localhost:5001/api/chats/start \
+ *   -H "Content-Type: application/json" \
+ *   -H "Authorization: Bearer $TOKEN" \
+ *   -d '{
+ *     "receiverId": "507f1f77bcf86cd799439011",
+ *     "ad": "507f191e810c19729de860ea"
+ *   }'
+ * 
+ * # Expected response (200):
+ * # {
+ * #   "success": true,
+ *   "message": "Chat already exists",
+ *   "chat": { ... }
  * # }
  */
 export const startChat = async (req, res, next) => {
@@ -93,56 +112,67 @@ export const startChat = async (req, res, next) => {
 
     // Ensure req.user exists and has id
     if (!req.user || !req.user.id) {
-      console.log('[CHAT_START] 400: Authentication failed - req.user missing or invalid');
+      console.log('[CHAT_START] 401: Authentication failed - req.user missing or invalid');
       return res.status(401).json({
-        error: {
-          code: 'AUTH_ERROR',
-          message: 'Authentication required',
-          details: { type: 'AUTH_REQUIRED' },
-        },
+        success: false,
+        message: 'Authentication required',
+        details: { type: 'AUTH_REQUIRED' },
       });
     }
 
     // Extract and validate receiverId
     const receiverId = req.body.receiverId;
     
-    // Extract adId with fallback and trim if string
-    const adIdRaw = req.body.adId ?? req.body.ad;
-    const adId = typeof adIdRaw === 'string' ? adIdRaw.trim() : adIdRaw;
-
-    // Log for debugging
-    console.log('[CHAT_START] Processing:', {
-      userId: req.user.id,
-      receiverId,
-      adId,
-      adIdRaw,
-    });
+    // Extract ad/adId with fallback - prioritize 'ad' field as per user requirement
+    const adRaw = req.body.ad ?? req.body.adId;
+    
+    // Log for debugging (dev only)
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[CHAT_START] Processing:', {
+        userId: req.user.id,
+        receiverId,
+        ad: adRaw,
+        bodyKeys: Object.keys(req.body),
+      });
+    }
 
     // Validate receiverId
     if (!receiverId) {
       console.log('[CHAT_START] 400: receiverId is required');
       return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'receiverId is required',
-          details: {
-            field: 'receiverId',
-          },
+        success: false,
+        message: 'receiverId is required',
+        details: {
+          field: 'receiverId',
         },
       });
     }
 
-    // Validate adId (check for null, undefined, or string "null"/"undefined")
-    if (!adId || adId === 'null' || adId === 'undefined') {
-      console.log('[CHAT_START] 400: adId is required or invalid', { adId, adIdRaw });
+    // Validate ad field - must be present and not null/undefined
+    if (adRaw === null || adRaw === undefined || adRaw === 'null' || adRaw === 'undefined') {
+      console.log('[CHAT_START] 400: Field ad is required', { ad: adRaw });
       return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'adId is required',
-          details: {
-            field: 'adId',
-            value: adIdRaw,
-          },
+        success: false,
+        message: "Field 'ad' is required",
+        details: {
+          field: 'ad',
+          value: adRaw,
+        },
+      });
+    }
+
+    // Trim if string
+    const adId = typeof adRaw === 'string' ? adRaw.trim() : adRaw;
+    
+    // Validate adId is not empty after trim
+    if (!adId || adId === '') {
+      console.log('[CHAT_START] 400: Field ad is required (empty)', { ad: adRaw });
+      return res.status(400).json({
+        success: false,
+        message: "Field 'ad' is required",
+        details: {
+          field: 'ad',
+          value: adRaw,
         },
       });
     }
@@ -151,28 +181,24 @@ export const startChat = async (req, res, next) => {
     if (!mongoose.Types.ObjectId.isValid(receiverId)) {
       console.log('[CHAT_START] 400: Invalid receiverId format', { receiverId });
       return res.status(400).json({
-        error: {
-          code: 'INVALID_ID',
-          message: 'Invalid receiverId format',
-          details: {
-            field: 'receiverId',
-            value: receiverId,
-          },
+        success: false,
+        message: 'Invalid receiverId format',
+        details: {
+          field: 'receiverId',
+          value: receiverId,
         },
       });
     }
 
     // Validate adId is valid ObjectId
     if (!mongoose.Types.ObjectId.isValid(adId)) {
-      console.log('[CHAT_START] 400: Invalid adId format', { adId });
+      console.log('[CHAT_START] 400: Invalid ad id', { ad: adId });
       return res.status(400).json({
-        error: {
-          code: 'INVALID_ID',
-          message: 'Invalid adId format',
-          details: {
-            field: 'adId',
-            value: adId,
-          },
+        success: false,
+        message: 'Invalid ad id',
+        details: {
+          field: 'ad',
+          value: adId,
         },
       });
     }
@@ -181,12 +207,10 @@ export const startChat = async (req, res, next) => {
     if (receiverId === req.user.id) {
       console.log('[CHAT_START] 400: Cannot start chat with yourself');
       return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Cannot start chat with yourself',
-          details: {
-            field: 'receiverId',
-          },
+        success: false,
+        message: 'Cannot start chat with yourself',
+        details: {
+          field: 'receiverId',
         },
       });
     }
@@ -196,13 +220,11 @@ export const startChat = async (req, res, next) => {
     if (!ad) {
       console.log('[CHAT_START] 404: Ad not found', { adId });
       return res.status(404).json({
-        error: {
-          code: 'NOT_FOUND',
-          message: 'Ad not found',
-          details: {
-            resource: 'Ad',
-            adId,
-          },
+        success: false,
+        message: 'Ad not found',
+        details: {
+          resource: 'Ad',
+          adId,
         },
       });
     }
@@ -212,12 +234,10 @@ export const startChat = async (req, res, next) => {
     if (!sellerId) {
       console.log('[CHAT_START] 500: Ad seller not found', { adId, ad: ad.toObject() });
       return res.status(500).json({
-        error: {
-          code: 'SERVER_ERROR',
-          message: 'Ad seller not found',
-          details: {
-            adId,
-          },
+        success: false,
+        message: 'Ad seller not found',
+        details: {
+          adId,
         },
       });
     }
@@ -226,13 +246,11 @@ export const startChat = async (req, res, next) => {
     if (receiverId !== sellerId.toString()) {
       console.log('[CHAT_START] 400: receiverId mismatch', { receiverId, sellerId: sellerId.toString() });
       return res.status(400).json({
-        error: {
-          code: 'RECEIVER_MISMATCH',
-          message: 'receiverId must match ad owner',
-          details: {
-            receiverId,
-            expectedSellerId: sellerId.toString(),
-          },
+        success: false,
+        message: 'receiverId must match ad owner',
+        details: {
+          receiverId,
+          expectedSellerId: sellerId.toString(),
         },
       });
     }
@@ -251,12 +269,29 @@ export const startChat = async (req, res, next) => {
     });
 
     if (chat) {
-      // Populate participants (name, email)
+      // Populate participants (name, email) and ad
       await chat.populate('participants', 'name email');
+      
+      // Log in dev mode
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[CHAT_START] Found existing chat:', {
+          chatId: chat._id.toString(),
+          userId: req.user.id,
+          ad: adId,
+        });
+      }
 
       return res.status(200).json({
         success: true,
-        data: { chat },
+        message: 'Chat already exists',
+        chat: {
+          _id: chat._id,
+          ad: chat.ad,
+          participants: chat.participants,
+          lastMessage: chat.lastMessage,
+          createdAt: chat.createdAt,
+          updatedAt: chat.updatedAt,
+        },
       });
     }
 
@@ -266,12 +301,29 @@ export const startChat = async (req, res, next) => {
       participants,
     });
 
-    // Populate participants (name, email)
+    // Populate participants (name, email) and ad
     await chat.populate('participants', 'name email');
+    
+    // Log in dev mode
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[CHAT_START] Created new chat:', {
+        chatId: chat._id.toString(),
+        userId: req.user.id,
+        ad: adId,
+      });
+    }
 
     return res.status(201).json({
       success: true,
-      data: { chat },
+      message: 'Chat created',
+      chat: {
+        _id: chat._id,
+        ad: chat.ad,
+        participants: chat.participants,
+        lastMessage: chat.lastMessage,
+        createdAt: chat.createdAt,
+        updatedAt: chat.updatedAt,
+      },
     });
   } catch (error) {
     // Log error for debugging (500 errors)
@@ -301,24 +353,41 @@ export const startChat = async (req, res, next) => {
     if (error.code === 11000) {
       try {
         const currentUserId = req.user?._id;
-        const { receiverId } = req.body;
+        const receiverId = req.body.receiverId;
+        const adRaw = req.body.ad ?? req.body.adId;
 
-        if (currentUserId && receiverId && mongoose.Types.ObjectId.isValid(receiverId)) {
+        if (currentUserId && receiverId && adRaw && 
+            mongoose.Types.ObjectId.isValid(receiverId) && 
+            mongoose.Types.ObjectId.isValid(adRaw)) {
           const currentUserObjectId = new mongoose.Types.ObjectId(currentUserId);
           const receiverObjectId = new mongoose.Types.ObjectId(receiverId);
+          const adObjectId = new mongoose.Types.ObjectId(adRaw);
+          const participants = [currentUserObjectId.toString(), receiverObjectId.toString()].sort();
 
+          // Find existing chat with same ad and participants
           const existingChat = await Chat.findOne({
-            participants: { $all: [currentUserObjectId, receiverObjectId] },
-            $expr: { $eq: [{ $size: '$participants' }, 2] },
+            ad: adObjectId,
+            participants: { $all: participants, $size: 2 },
           });
 
           if (existingChat) {
             await existingChat.populate('participants', 'name email');
+            
+            // Log in dev mode
+            if (process.env.NODE_ENV !== 'production') {
+              console.log('[CHAT_START] Duplicate key - found existing chat:', {
+                chatId: existingChat._id.toString(),
+                userId: currentUserId.toString(),
+                ad: adRaw,
+              });
+            }
 
             return res.status(200).json({
               success: true,
+              message: 'Chat already exists',
               chat: {
                 _id: existingChat._id,
+                ad: existingChat.ad,
                 participants: existingChat.participants,
                 lastMessage: existingChat.lastMessage,
                 createdAt: existingChat.createdAt,
