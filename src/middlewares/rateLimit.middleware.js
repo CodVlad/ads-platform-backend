@@ -29,28 +29,90 @@ export const authLimiter = (req, res, next) => {
   next();
 };
 
-// Rate limiting for general API routes
-const apiRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  message: {
-    success: false,
-    message: 'Too many requests from this IP, please try again after 15 minutes',
+// Rate limiting for read operations (GET requests)
+// Higher limit, shorter window for read-heavy endpoints
+const readRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 60 seconds (1 minute)
+  max: 120, // Limit each IP to 120 GET requests per minute
+  handler: (req, res) => {
+    const retryAfter = req.rateLimit?.resetTime 
+      ? Math.ceil((req.rateLimit.resetTime - Date.now()) / 1000)
+      : 60;
+    res.status(429).json({
+      success: false,
+      message: 'Too many requests, try again later',
+      details: {
+        type: 'RATE_LIMIT',
+        retryAfterSeconds: retryAfter > 0 ? retryAfter : 60,
+      },
+    });
   },
-  standardHeaders: true,
-  legacyHeaders: false,
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   skipSuccessfulRequests: true, // Don't count successful requests
   validate: false, // Disable validation to prevent ERR_ERL_UNEXPECTED_X_FORWARDED_FOR crash
   keyGenerator: (req) => req.ip, // Safe key generator that does not depend on X-Forwarded-For
 });
 
-// Wrapper to skip OPTIONS requests (preflight)
+// Rate limiting for write operations (POST/PUT/PATCH/DELETE)
+// Lower limit, longer window for write operations
+const writeRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 40, // Limit each IP to 40 write requests per 15 minutes
+  handler: (req, res) => {
+    const retryAfter = req.rateLimit?.resetTime
+      ? Math.ceil((req.rateLimit.resetTime - Date.now()) / 1000)
+      : 900;
+    res.status(429).json({
+      success: false,
+      message: 'Too many requests, try again later',
+      details: {
+        type: 'RATE_LIMIT',
+        retryAfterSeconds: retryAfter > 0 ? retryAfter : 900,
+      },
+    });
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false, // Count all write requests (including successful)
+  validate: false,
+  keyGenerator: (req) => req.ip,
+});
+
+// Smart middleware: applies readLimiter for GET, writeLimiter for POST/PUT/PATCH/DELETE
 export const apiLimiter = (req, res, next) => {
   // Skip OPTIONS requests (preflight)
   if (req.method === 'OPTIONS') {
     return next();
   }
-  return apiRateLimiter(req, res, next);
+
+  // Apply readLimiter for GET requests
+  if (req.method === 'GET') {
+    return readRateLimiter(req, res, next);
+  }
+
+  // Apply writeLimiter for POST, PUT, PATCH, DELETE
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+    return writeRateLimiter(req, res, next);
+  }
+
+  // For other methods, skip rate limiting
+  next();
+};
+
+// Export individual limiters for specific use cases if needed
+export const readLimiter = (req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    return next();
+  }
+  return readRateLimiter(req, res, next);
+};
+
+export const writeLimiter = (req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    return next();
+  }
+  return writeRateLimiter(req, res, next);
 };
 
 // Rate limiting for forgot-password (more lenient than general auth)

@@ -115,25 +115,29 @@ app.use('/api/auth', authRoutes);
 app.use('/api/categories', categoriesRoutes);
 
 // Ads routes
-// GET /api/ads - List ads (with filters, pagination)
-// GET /api/ads/:id - Get ad by ID
-// POST /api/ads - Create ad (protected)
-// PATCH /api/ads/:id/status - Update ad status (protected)
-// DELETE /api/ads/:id - Delete ad (protected)
+// GET /api/ads - List ads (with filters, pagination) - uses readLimiter (120/min)
+// GET /api/ads/:id - Get ad by ID - uses readLimiter (120/min)
+// POST /api/ads - Create ad (protected) - uses writeLimiter (40/15min)
+// PATCH /api/ads/:id/status - Update ad status (protected) - uses writeLimiter (40/15min)
+// DELETE /api/ads/:id - Delete ad (protected) - uses writeLimiter (40/15min)
+// Note: apiLimiter automatically applies readLimiter for GET, writeLimiter for POST/PATCH/DELETE
 app.use('/api/ads', apiLimiter, adsRoutes);
 
 // Favorites routes
-// GET /api/favorites/my - Get current user's favorite ads (protected)
-// GET /api/favorites - Get user's favorite ads (protected)
-// POST /api/favorites/:adId - Add ad to favorites (protected)
-// DELETE /api/favorites/:adId - Remove ad from favorites (protected)
+// GET /api/favorites/my - Get current user's favorite ads (protected) - uses readLimiter (120/min)
+// GET /api/favorites - Get user's favorite ads (protected) - uses readLimiter (120/min)
+// POST /api/favorites/:adId - Add ad to favorites (protected) - uses writeLimiter (40/15min)
+// DELETE /api/favorites/:adId - Remove ad from favorites (protected) - uses writeLimiter (40/15min)
+// Note: apiLimiter automatically applies readLimiter for GET, writeLimiter for POST/DELETE
 app.use('/api/favorites', apiLimiter, favoritesRoutes);
 
 // Chat routes
-// POST /api/chats/start - Start or get existing conversation (protected)
-// GET /api/chats - Get all conversations for current user (protected)
-// GET /api/chats/:id/messages - Get messages for a conversation (protected)
-// POST /api/chats/:id/messages - Send a message in a conversation (protected)
+// GET /api/chats/unread-count - Get unread count (protected) - uses readLimiter (120/min)
+// GET /api/chats - Get all conversations for current user (protected) - uses readLimiter (120/min)
+// GET /api/chats/:id/messages - Get messages for a conversation (protected) - uses readLimiter (120/min)
+// POST /api/chats/start - Start or get existing conversation (protected) - uses writeLimiter (40/15min)
+// POST /api/chats/:id/messages - Send a message in a conversation (protected) - uses writeLimiter (40/15min)
+// Note: apiLimiter automatically applies readLimiter for GET, writeLimiter for POST
 // IMPORTANT: Mount chat routes BEFORE 404 handler
 app.use('/api/chats', apiLimiter, chatRoutes);
 
