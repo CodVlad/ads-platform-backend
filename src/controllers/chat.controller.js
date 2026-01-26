@@ -1,6 +1,7 @@
 import Chat from '../models/Chat.js';
 import Message from '../models/Message.js';
 import User from '../models/User.js';
+import Ad from '../models/Ad.js';
 import mongoose from 'mongoose';
 import { AppError } from '../middlewares/error.middleware.js';
 import logger from '../config/logger.js';
@@ -20,58 +21,117 @@ export const startChat = async (req, res, next) => {
       );
     }
 
-    const currentUserId = req.user._id;
-    const { receiverId } = req.body;
+    // Accept both adId and ad (fallback for compatibility)
+    const adId = req.body.adId || req.body.ad;
+    const receiverId = req.body.receiverId;
 
-    // Validate receiverId exists and is non-empty string
-    if (!receiverId || typeof receiverId !== 'string' || receiverId.trim().length === 0) {
-      return next(
-        new AppError('receiverId is required and must be a non-empty string', 400, {
+    // Log for debugging
+    console.log('[CHAT_START] user:', req.user._id, 'receiverId:', receiverId, 'adId:', adId);
+
+    // Validate receiverId
+    if (!receiverId) {
+      return res.status(400).json({
+        success: false,
+        message: 'receiverId is required',
+        details: {
           type: 'VALIDATION_ERROR',
           field: 'receiverId',
-        })
-      );
+        },
+      });
+    }
+
+    // Validate adId
+    if (!adId) {
+      return res.status(400).json({
+        success: false,
+        message: 'adId is required',
+        details: {
+          type: 'VALIDATION_ERROR',
+          field: 'adId',
+        },
+      });
     }
 
     // Validate receiverId is valid ObjectId
     if (!mongoose.Types.ObjectId.isValid(receiverId)) {
-      return next(
-        new AppError('Invalid receiverId format', 400, {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid receiverId format',
+        details: {
           type: 'INVALID_ID',
           field: 'receiverId',
-        })
-      );
+        },
+      });
+    }
+
+    // Validate adId is valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(adId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid adId format',
+        details: {
+          type: 'INVALID_ID',
+          field: 'adId',
+        },
+      });
     }
 
     // Check receiver is not current user
-    if (receiverId === currentUserId.toString()) {
-      return next(
-        new AppError('Cannot start chat with yourself', 400, {
-          type: 'INVALID_RECEIVER',
-        })
-      );
+    if (receiverId === req.user._id.toString()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot start chat with yourself',
+        details: {
+          type: 'VALIDATION_ERROR',
+        },
+      });
     }
 
-    // Ensure receiver user exists in DB
-    const receiver = await User.findById(receiverId);
-    if (!receiver) {
-      return next(
-        new AppError('Receiver user not found', 404, {
+    // Verify ad exists and get sellerId
+    const ad = await Ad.findById(adId).select('user seller owner createdBy');
+    if (!ad) {
+      return res.status(404).json({
+        success: false,
+        message: 'Ad not found',
+        details: {
           type: 'NOT_FOUND',
-          resource: 'User',
-        })
-      );
+          resource: 'Ad',
+        },
+      });
+    }
+
+    // Determine sellerId from ad (try multiple fields)
+    const sellerId = ad.user || ad.seller || ad.owner || ad.createdBy;
+    if (!sellerId) {
+      return res.status(500).json({
+        success: false,
+        message: 'Ad seller not found',
+        details: {
+          type: 'SERVER_ERROR',
+        },
+      });
+    }
+
+    // Extra protection: verify receiverId matches ad owner
+    if (receiverId !== sellerId.toString()) {
+      return res.status(400).json({
+        success: false,
+        message: 'receiverId must match ad owner',
+        details: {
+          type: 'RECEIVER_MISMATCH',
+        },
+      });
     }
 
     // Convert to ObjectIds for query
-    const currentUserObjectId = new mongoose.Types.ObjectId(currentUserId);
+    const currentUserObjectId = new mongoose.Types.ObjectId(req.user._id);
     const receiverObjectId = new mongoose.Types.ObjectId(receiverId);
+    const adObjectId = new mongoose.Types.ObjectId(adId);
 
-    // Find existing chat between the two participants
-    // Query: participants contains both users AND exactly 2 participants
+    // Find existing chat for this ad and participants
     const existingChat = await Chat.findOne({
+      ad: adObjectId,
       participants: { $all: [currentUserObjectId, receiverObjectId] },
-      $expr: { $eq: [{ $size: '$participants' }, 2] },
     });
 
     if (existingChat) {
@@ -81,18 +141,22 @@ export const startChat = async (req, res, next) => {
       // Return existing chat
       return res.status(200).json({
         success: true,
-        chat: {
-          _id: existingChat._id,
-          participants: existingChat.participants,
-          lastMessage: existingChat.lastMessage,
-          createdAt: existingChat.createdAt,
-          updatedAt: existingChat.updatedAt,
+        data: {
+          chat: {
+            _id: existingChat._id,
+            ad: existingChat.ad,
+            participants: existingChat.participants,
+            lastMessage: existingChat.lastMessage,
+            createdAt: existingChat.createdAt,
+            updatedAt: existingChat.updatedAt,
+          },
         },
       });
     }
 
-    // Create new chat
+    // Create new chat with adId
     const newChat = await Chat.create({
+      ad: adObjectId,
       participants: [currentUserObjectId, receiverObjectId],
     });
 
@@ -100,14 +164,17 @@ export const startChat = async (req, res, next) => {
     await newChat.populate('participants', 'name email');
 
     // Return new chat
-    return res.status(201).json({
+    return res.status(200).json({
       success: true,
-      chat: {
-        _id: newChat._id,
-        participants: newChat.participants,
-        lastMessage: newChat.lastMessage,
-        createdAt: newChat.createdAt,
-        updatedAt: newChat.updatedAt,
+      data: {
+        chat: {
+          _id: newChat._id,
+          ad: newChat.ad,
+          participants: newChat.participants,
+          lastMessage: newChat.lastMessage,
+          createdAt: newChat.createdAt,
+          updatedAt: newChat.updatedAt,
+        },
       },
     });
   } catch (error) {

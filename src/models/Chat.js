@@ -2,6 +2,11 @@ import mongoose from 'mongoose';
 
 const chatSchema = new mongoose.Schema(
   {
+    ad: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Ad',
+      default: null,
+    },
     participants: {
       type: [
         {
@@ -30,8 +35,10 @@ const chatSchema = new mongoose.Schema(
   }
 );
 
-// Index for efficient queries: find chats by participants
+// Indexes for efficient queries
 chatSchema.index({ participants: 1 });
+chatSchema.index({ ad: 1 });
+chatSchema.index({ ad: 1, participants: 1 }); // Compound index for finding chats by ad and participants
 
 const Chat = mongoose.model('Chat', chatSchema);
 
