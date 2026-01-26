@@ -147,6 +147,55 @@ if (debugRoutes) {
   app.use('/api/debug', debugRoutes);
 }
 
+// Diagnostic endpoint (production only) - to check mounted routes
+if (process.env.NODE_ENV === 'production') {
+  app.get('/api/__routes', (req, res) => {
+    const mountedPaths = [];
+    
+    // Inspect router stack to find mounted paths
+    if (app._router && app._router.stack) {
+      app._router.stack.forEach((layer) => {
+        if (layer.route) {
+          // Direct route
+          mountedPaths.push(layer.route.path);
+        } else if (layer.regexp && layer.regexp.toString() !== '/^\\/?(?=\\/|$)/i') {
+          // Router middleware - extract path from regexp
+          const regexStr = layer.regexp.toString();
+          // Try to extract meaningful path patterns
+          if (regexStr.includes('integrations') || regexStr.includes('api')) {
+            // This is likely a mounted router
+            const pathMatch = regexStr.match(/\/([^\/]+)/);
+            if (pathMatch) {
+              mountedPaths.push(pathMatch[0]);
+            }
+          }
+        }
+      });
+    }
+    
+    // Also check known mounted paths explicitly
+    const knownPaths = [
+      '/',
+      '/api/auth',
+      '/api/categories',
+      '/api/ads',
+      '/api/favorites',
+      '/api/chats',
+      '/share',
+      '/api/integrations',
+    ];
+    
+    // Combine and deduplicate
+    const allPaths = [...new Set([...knownPaths, ...mountedPaths])].sort();
+    
+    res.status(200).json({
+      success: true,
+      mountedPaths: allPaths,
+      env: process.env.NODE_ENV || 'unknown',
+    });
+  });
+}
+
 // 404 handler - must be after all routes
 app.use(notFound);
 

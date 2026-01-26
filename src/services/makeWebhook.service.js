@@ -25,7 +25,18 @@ const getWebhookUrl = () => {
 export async function sendToMakeWebhook(payload) {
   const webhookUrl = getWebhookUrl();
   
-  // Log exact webhook URL used
+  // Build headers
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+  
+  // Add API key header if provided
+  if (process.env.MAKE_API_KEY) {
+    headers['x-make-apikey'] = process.env.MAKE_API_KEY;
+    console.log('[MAKE] API key provided (not logged for security)');
+  }
+  
+  // Log exact webhook URL used (but not API key)
   console.log('[MAKE] webhook URL used:', webhookUrl);
   console.log('[MAKE] payload:', JSON.stringify(payload, null, 2));
   
@@ -45,9 +56,7 @@ export async function sendToMakeWebhook(payload) {
       // Send POST request to webhook
       const response = await fetch(webhookUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(payload),
         signal: controller.signal,
       });

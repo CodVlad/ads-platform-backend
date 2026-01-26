@@ -6,6 +6,14 @@ import app from './app.js';
 import logger from './config/logger.js';
 import validateEnv from './config/validateEnv.js';
 
+// Check if integrations routes are mounted by inspecting router stack
+const integrationsMounted = app._router?.stack?.some((layer) => {
+  const path = layer?.regexp?.toString() || '';
+  return path.includes('integrations') || path.includes('/api/integrations');
+}) || false;
+
+console.log('[BOOT] app.js loaded, integrations mounted:', integrationsMounted);
+
 app.set('trust proxy', true);
 console.log("trust proxy:", app.get("trust proxy"));
 

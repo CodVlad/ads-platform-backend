@@ -4,6 +4,18 @@ import { sendToMakeWebhook } from '../services/makeWebhook.service.js';
 const router = express.Router();
 
 /**
+ * @route   GET /api/integrations/ping
+ * @desc    Test endpoint to confirm integrations routes are mounted
+ * @access  Public
+ */
+router.get('/ping', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'integrations ok',
+  });
+});
+
+/**
  * @route   POST /api/integrations/make/test
  * @desc    Test Make webhook integration
  * @access  Public
