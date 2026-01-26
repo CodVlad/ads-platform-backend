@@ -21,9 +21,12 @@ export const startChat = async (req, res, next) => {
       );
     }
 
-    // Accept both adId and ad (fallback for compatibility)
-    const adId = req.body.adId || req.body.ad;
+    // Extract and validate receiverId
     const receiverId = req.body.receiverId;
+    
+    // Extract adId with fallback and trim if string
+    const adIdRaw = req.body.adId ?? req.body.ad;
+    const adId = typeof adIdRaw === 'string' ? adIdRaw.trim() : adIdRaw;
 
     // Log for debugging
     console.log('[CHAT_START] user:', req.user._id, 'receiverId:', receiverId, 'adId:', adId);
@@ -34,20 +37,19 @@ export const startChat = async (req, res, next) => {
         success: false,
         message: 'receiverId is required',
         details: {
-          type: 'VALIDATION_ERROR',
           field: 'receiverId',
         },
       });
     }
 
-    // Validate adId
-    if (!adId) {
+    // Validate adId (check for null, undefined, or string "null"/"undefined")
+    if (!adId || adId === 'null' || adId === 'undefined') {
       return res.status(400).json({
         success: false,
         message: 'adId is required',
         details: {
-          type: 'VALIDATION_ERROR',
           field: 'adId',
+          value: adIdRaw,
         },
       });
     }
@@ -123,59 +125,41 @@ export const startChat = async (req, res, next) => {
       });
     }
 
-    // Convert to ObjectIds for query
-    const currentUserObjectId = new mongoose.Types.ObjectId(req.user._id);
-    const receiverObjectId = new mongoose.Types.ObjectId(receiverId);
+    // Convert adId to ObjectId
     const adObjectId = new mongoose.Types.ObjectId(adId);
 
+    // Prepare participants array (sorted for consistency)
+    const me = req.user.id;
+    const participants = [me, receiverId].sort();
+
     // Find existing chat for this ad and participants
-    const existingChat = await Chat.findOne({
+    let chat = await Chat.findOne({
       ad: adObjectId,
-      participants: { $all: [currentUserObjectId, receiverObjectId] },
+      participants: { $all: participants, $size: 2 },
     });
 
-    if (existingChat) {
+    if (chat) {
       // Populate participants (name, email)
-      await existingChat.populate('participants', 'name email');
+      await chat.populate('participants', 'name email');
 
-      // Return existing chat
       return res.status(200).json({
         success: true,
-        data: {
-          chat: {
-            _id: existingChat._id,
-            ad: existingChat.ad,
-            participants: existingChat.participants,
-            lastMessage: existingChat.lastMessage,
-            createdAt: existingChat.createdAt,
-            updatedAt: existingChat.updatedAt,
-          },
-        },
+        data: { chat },
       });
     }
 
     // Create new chat with adId
-    const newChat = await Chat.create({
+    chat = await Chat.create({
       ad: adObjectId,
-      participants: [currentUserObjectId, receiverObjectId],
+      participants,
     });
 
     // Populate participants (name, email)
-    await newChat.populate('participants', 'name email');
+    await chat.populate('participants', 'name email');
 
-    // Return new chat
-    return res.status(200).json({
+    return res.status(201).json({
       success: true,
-      data: {
-        chat: {
-          _id: newChat._id,
-          ad: newChat.ad,
-          participants: newChat.participants,
-          lastMessage: newChat.lastMessage,
-          createdAt: newChat.createdAt,
-          updatedAt: newChat.updatedAt,
-        },
-      },
+      data: { chat },
     });
   } catch (error) {
     // Log error for debugging (500 errors)
