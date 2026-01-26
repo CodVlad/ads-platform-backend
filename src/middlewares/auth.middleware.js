@@ -53,11 +53,12 @@ export const protect = async (req, res, next) => {
     }
 
     // Attach user to request object with STRICT structure
-    // req.user must contain: { id: userId }
-    // Convert _id to string for consistent comparison
+    // req.user must contain: { id: userId, _id: userId }
+    // Both id and _id are strings for consistency
+    const userIdString = user._id.toString();
     req.user = {
-      id: user._id.toString(), // Always use string for comparison
-      _id: user._id, // Keep _id for Mongoose operations
+      id: userIdString, // Always use string for comparison
+      _id: userIdString, // Also set _id as string for consistency
       name: user.name,
       email: user.email,
     };

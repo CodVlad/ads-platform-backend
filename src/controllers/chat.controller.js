@@ -5,6 +5,7 @@ import Ad from '../models/Ad.js';
 import mongoose from 'mongoose';
 import { AppError } from '../middlewares/error.middleware.js';
 import logger from '../config/logger.js';
+import { getReqUserId } from '../utils/getReqUserId.js';
 
 /**
  * Start or get existing chat
@@ -463,20 +464,22 @@ export const startChat = async (req, res, next) => {
  */
 export const unreadCount = async (req, res, next) => {
   try {
-    // Ensure req.user exists and has _id
-    if (!req.user || !req.user._id) {
-      return next(
-        new AppError('Authentication required', 401, {
-          type: 'AUTH_REQUIRED',
-        })
-      );
+    // Get userId using helper (production-safe)
+    const userId = getReqUserId(req);
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+        details: { type: 'AUTH_REQUIRED' },
+      });
     }
 
-    const currentUserId = req.user._id;
+    // Convert to ObjectId for query
+    const userObjectId = new mongoose.Types.ObjectId(userId);
 
     // Count unread messages for current user
     const count = await Message.countDocuments({
-      receiver: currentUserId,
+      receiver: userObjectId,
       isRead: false,
     });
 
@@ -495,29 +498,52 @@ export const unreadCount = async (req, res, next) => {
  */
 export const getChats = async (req, res, next) => {
   try {
-    // Ensure req.user exists and has _id
-    if (!req.user || !req.user._id) {
-      return next(
-        new AppError('Authentication required', 401, {
-          type: 'AUTH_REQUIRED',
-        })
-      );
+    // Get userId using helper (production-safe)
+    const userId = getReqUserId(req);
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+        details: { type: 'AUTH_REQUIRED' },
+      });
     }
 
-    const currentUserId = req.user._id;
+    // Convert to ObjectId for queries
+    const userObjectId = new mongoose.Types.ObjectId(userId);
 
     // Find all chats where user is a participant
     const chats = await Chat.find({
-      participants: currentUserId,
+      participants: userObjectId,
     })
       .populate('participants', 'name email')
       .populate('lastMessage')
       .sort({ updatedAt: -1 })
       .lean();
 
+    // Get unread counts via ONE aggregation (fast, not N queries)
+    const unreadAgg = await Message.aggregate([
+      { $match: { receiver: userObjectId, isRead: false } },
+      { $group: { _id: '$chat', count: { $sum: 1 } } },
+    ]);
+
+    // Build map: chatId -> unreadCount
+    const unreadMap = new Map(
+      unreadAgg.map((x) => [String(x._id), x.count])
+    );
+
+    // Calculate total unread (optional, for convenience)
+    const totalUnread = unreadAgg.reduce((sum, x) => sum + x.count, 0);
+
+    // Add unreadCount to each chat
+    const chatsWithUnread = chats.map((chat) => ({
+      ...chat,
+      unreadCount: unreadMap.get(String(chat._id)) || 0,
+    }));
+
     res.status(200).json({
       success: true,
-      chats,
+      chats: chatsWithUnread,
+      totalUnread,
     });
   } catch (error) {
     next(error);
@@ -530,17 +556,18 @@ export const getChats = async (req, res, next) => {
  */
 export const getMessages = async (req, res, next) => {
   try {
-    // Ensure req.user exists and has _id
-    if (!req.user || !req.user._id) {
-      return next(
-        new AppError('Authentication required', 401, {
-          type: 'AUTH_REQUIRED',
-        })
-      );
+    // Get userId using helper (production-safe)
+    const userId = getReqUserId(req);
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+        details: { type: 'AUTH_REQUIRED' },
+      });
     }
 
     const chatId = req.params.id;
-    const currentUserId = req.user._id;
+    const currentUserId = new mongoose.Types.ObjectId(userId);
 
     // Validate ObjectId format
     if (!mongoose.Types.ObjectId.isValid(chatId)) {
