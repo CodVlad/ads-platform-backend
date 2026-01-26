@@ -9,16 +9,98 @@ import logger from '../config/logger.js';
 /**
  * Start or get existing chat
  * POST /api/chats/start
+ * 
+ * @contract
+ * Request:
+ *   Headers:
+ *     Authorization: Bearer <JWT_TOKEN>
+ *     Content-Type: application/json
+ *   Body:
+ *     {
+ *       "receiverId": "string (ObjectId)",
+ *       "adId": "string (ObjectId)" // or "ad" as fallback
+ *     }
+ * 
+ * Response (200/201):
+ *   {
+ *     "success": true,
+ *     "data": {
+ *       "chat": {
+ *         "_id": "...",
+ *         "ad": "...",
+ *         "participants": [...],
+ *         "lastMessage": null,
+ *         "createdAt": "...",
+ *         "updatedAt": "..."
+ *       }
+ *     }
+ *   }
+ * 
+ * Response (400):
+ *   {
+ *     "error": {
+ *       "code": "VALIDATION_ERROR|INVALID_ID|RECEIVER_MISMATCH",
+ *       "message": "...",
+ *       "details": { "field": "...", ... }
+ *     }
+ *   }
+ * 
+ * @example
+ * # Get JWT token first (from login endpoint)
+ * TOKEN=$(curl -X POST http://localhost:5001/api/auth/login \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"email":"user@example.com","password":"password123"}' \
+ *   | jq -r '.data.token')
+ * 
+ * # Start chat
+ * curl -X POST http://localhost:5001/api/chats/start \
+ *   -H "Content-Type: application/json" \
+ *   -H "Authorization: Bearer $TOKEN" \
+ *   -d '{
+ *     "receiverId": "507f1f77bcf86cd799439011",
+ *     "adId": "507f191e810c19729de860ea"
+ *   }'
+ * 
+ * # Expected success response (200/201):
+ * # {
+ * #   "success": true,
+ * #   "data": {
+ * #     "chat": {
+ * #       "_id": "...",
+ * #       "ad": "...",
+ * #       "participants": [...],
+ * #       "lastMessage": null,
+ * #       "createdAt": "...",
+ * #       "updatedAt": "..."
+ * #     }
+ * #   }
+ * # }
  */
 export const startChat = async (req, res, next) => {
   try {
-    // Ensure req.user exists and has _id
-    if (!req.user || !req.user._id) {
-      return next(
-        new AppError('Authentication required', 401, {
-          type: 'AUTH_REQUIRED',
-        })
-      );
+    // Detailed logging for 400 errors
+    const authHeader = req.headers.authorization;
+    const authPreview = authHeader 
+      ? `${authHeader.substring(0, 20)}... (length: ${authHeader.length})`
+      : 'missing';
+    
+    console.log('[CHAT_START] Request details:', {
+      origin: req.headers.origin || 'missing',
+      authorization: authPreview,
+      body: JSON.stringify(req.body),
+      user: req.user ? { id: req.user.id, _id: req.user._id?.toString() } : 'missing',
+    });
+
+    // Ensure req.user exists and has id
+    if (!req.user || !req.user.id) {
+      console.log('[CHAT_START] 400: Authentication failed - req.user missing or invalid');
+      return res.status(401).json({
+        error: {
+          code: 'AUTH_ERROR',
+          message: 'Authentication required',
+          details: { type: 'AUTH_REQUIRED' },
+        },
+      });
     }
 
     // Extract and validate receiverId
@@ -29,62 +111,82 @@ export const startChat = async (req, res, next) => {
     const adId = typeof adIdRaw === 'string' ? adIdRaw.trim() : adIdRaw;
 
     // Log for debugging
-    console.log('[CHAT_START] user:', req.user._id, 'receiverId:', receiverId, 'adId:', adId);
+    console.log('[CHAT_START] Processing:', {
+      userId: req.user.id,
+      receiverId,
+      adId,
+      adIdRaw,
+    });
 
     // Validate receiverId
     if (!receiverId) {
+      console.log('[CHAT_START] 400: receiverId is required');
       return res.status(400).json({
-        success: false,
-        message: 'receiverId is required',
-        details: {
-          field: 'receiverId',
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'receiverId is required',
+          details: {
+            field: 'receiverId',
+          },
         },
       });
     }
 
     // Validate adId (check for null, undefined, or string "null"/"undefined")
     if (!adId || adId === 'null' || adId === 'undefined') {
+      console.log('[CHAT_START] 400: adId is required or invalid', { adId, adIdRaw });
       return res.status(400).json({
-        success: false,
-        message: 'adId is required',
-        details: {
-          field: 'adId',
-          value: adIdRaw,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'adId is required',
+          details: {
+            field: 'adId',
+            value: adIdRaw,
+          },
         },
       });
     }
 
     // Validate receiverId is valid ObjectId
     if (!mongoose.Types.ObjectId.isValid(receiverId)) {
+      console.log('[CHAT_START] 400: Invalid receiverId format', { receiverId });
       return res.status(400).json({
-        success: false,
-        message: 'Invalid receiverId format',
-        details: {
-          type: 'INVALID_ID',
-          field: 'receiverId',
+        error: {
+          code: 'INVALID_ID',
+          message: 'Invalid receiverId format',
+          details: {
+            field: 'receiverId',
+            value: receiverId,
+          },
         },
       });
     }
 
     // Validate adId is valid ObjectId
     if (!mongoose.Types.ObjectId.isValid(adId)) {
+      console.log('[CHAT_START] 400: Invalid adId format', { adId });
       return res.status(400).json({
-        success: false,
-        message: 'Invalid adId format',
-        details: {
-          type: 'INVALID_ID',
-          field: 'adId',
+        error: {
+          code: 'INVALID_ID',
+          message: 'Invalid adId format',
+          details: {
+            field: 'adId',
+            value: adId,
+          },
         },
       });
     }
 
     // Check receiver is not current user
-    if (receiverId === req.user._id.toString()) {
+    if (receiverId === req.user.id) {
+      console.log('[CHAT_START] 400: Cannot start chat with yourself');
       return res.status(400).json({
-        success: false,
-        message: 'Cannot start chat with yourself',
-        details: {
-          type: 'VALIDATION_ERROR',
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Cannot start chat with yourself',
+          details: {
+            field: 'receiverId',
+          },
         },
       });
     }
@@ -92,12 +194,15 @@ export const startChat = async (req, res, next) => {
     // Verify ad exists and get sellerId
     const ad = await Ad.findById(adId).select('user seller owner createdBy');
     if (!ad) {
+      console.log('[CHAT_START] 404: Ad not found', { adId });
       return res.status(404).json({
-        success: false,
-        message: 'Ad not found',
-        details: {
-          type: 'NOT_FOUND',
-          resource: 'Ad',
+        error: {
+          code: 'NOT_FOUND',
+          message: 'Ad not found',
+          details: {
+            resource: 'Ad',
+            adId,
+          },
         },
       });
     }
@@ -105,22 +210,29 @@ export const startChat = async (req, res, next) => {
     // Determine sellerId from ad (try multiple fields)
     const sellerId = ad.user || ad.seller || ad.owner || ad.createdBy;
     if (!sellerId) {
+      console.log('[CHAT_START] 500: Ad seller not found', { adId, ad: ad.toObject() });
       return res.status(500).json({
-        success: false,
-        message: 'Ad seller not found',
-        details: {
-          type: 'SERVER_ERROR',
+        error: {
+          code: 'SERVER_ERROR',
+          message: 'Ad seller not found',
+          details: {
+            adId,
+          },
         },
       });
     }
 
     // Extra protection: verify receiverId matches ad owner
     if (receiverId !== sellerId.toString()) {
+      console.log('[CHAT_START] 400: receiverId mismatch', { receiverId, sellerId: sellerId.toString() });
       return res.status(400).json({
-        success: false,
-        message: 'receiverId must match ad owner',
-        details: {
-          type: 'RECEIVER_MISMATCH',
+        error: {
+          code: 'RECEIVER_MISMATCH',
+          message: 'receiverId must match ad owner',
+          details: {
+            receiverId,
+            expectedSellerId: sellerId.toString(),
+          },
         },
       });
     }
