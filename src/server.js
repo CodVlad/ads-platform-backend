@@ -13,6 +13,7 @@ const integrationsMounted = app._router?.stack?.some((layer) => {
 }) || false;
 
 console.log('[BOOT] app.js loaded, integrations mounted:', integrationsMounted);
+console.log('[BOOT] FORGOT_PASSWORD_STRICT:', process.env.FORGOT_PASSWORD_STRICT);
 
 app.set('trust proxy', true);
 console.log("trust proxy:", app.get("trust proxy"));
