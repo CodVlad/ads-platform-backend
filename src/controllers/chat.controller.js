@@ -120,22 +120,22 @@ export const startChat = async (req, res, next) => {
       });
     }
 
-    // Extract receiverId and adId (support both adId and ad fields)
-    const receiverId = req.body.receiverId;
+    // Normalize IDs early
+    const receiverIdRaw = req.body.receiverId;
     const adIdRaw = req.body.adId ?? req.body.ad;
     
     // Log for debugging (dev only)
     if (process.env.NODE_ENV !== 'production') {
       console.log('[CHAT_START] Processing:', {
         userId: req.user.id,
-        receiverId,
+        receiverId: receiverIdRaw,
         adId: adIdRaw,
         bodyKeys: Object.keys(req.body),
       });
     }
 
-    // Validate receiverId - required, non-empty string
-    if (!receiverId || (typeof receiverId === 'string' && receiverId.trim() === '')) {
+    // Strict validation: receiverId - required, non-empty string
+    if (!receiverIdRaw || (typeof receiverIdRaw === 'string' && receiverIdRaw.trim() === '')) {
       console.log('[CHAT_START] 400: receiverId is required');
       return res.status(400).json({
         success: false,
@@ -147,7 +147,7 @@ export const startChat = async (req, res, next) => {
       });
     }
 
-    // Validate adId - required, non-empty string
+    // Strict validation: adId - required, non-empty string
     if (!adIdRaw || adIdRaw === null || adIdRaw === undefined || 
         (typeof adIdRaw === 'string' && adIdRaw.trim() === '') ||
         adIdRaw === 'null' || adIdRaw === 'undefined') {
@@ -163,9 +163,22 @@ export const startChat = async (req, res, next) => {
     }
 
     // Trim if string and normalize
+    const receiverId = typeof receiverIdRaw === 'string' ? receiverIdRaw.trim() : receiverIdRaw;
     const adId = typeof adIdRaw === 'string' ? adIdRaw.trim() : adIdRaw;
     
     // Double-check after trim
+    if (!receiverId || receiverId === '') {
+      console.log('[CHAT_START] 400: receiverId is required (empty after trim)', { receiverId: receiverIdRaw });
+      return res.status(400).json({
+        success: false,
+        message: 'receiverId is required and must be a non-empty string',
+        details: {
+          type: 'VALIDATION_ERROR',
+          field: 'receiverId',
+        },
+      });
+    }
+
     if (!adId || adId === '') {
       console.log('[CHAT_START] 400: adId is required (empty after trim)', { adId: adIdRaw });
       return res.status(400).json({
@@ -204,8 +217,13 @@ export const startChat = async (req, res, next) => {
       });
     }
 
+    // Convert to ObjectIds
+    const adObjectId = new mongoose.Types.ObjectId(adId);
+    const receiverObjectId = new mongoose.Types.ObjectId(receiverId);
+    const meObjectId = new mongoose.Types.ObjectId(req.user.id);
+
     // Check receiver is not current user
-    if (receiverId === req.user.id) {
+    if (receiverObjectId.toString() === meObjectId.toString()) {
       console.log('[CHAT_START] 400: Cannot start chat with yourself');
       return res.status(400).json({
         success: false,
@@ -217,7 +235,7 @@ export const startChat = async (req, res, next) => {
     }
 
     // Verify ad exists and get sellerId
-    const ad = await Ad.findById(adId).select('user seller owner createdBy');
+    const ad = await Ad.findById(adObjectId).select('user seller owner createdBy');
     if (!ad) {
       console.log('[CHAT_START] 404: Ad not found', { adId });
       return res.status(404).json({
@@ -244,7 +262,7 @@ export const startChat = async (req, res, next) => {
     }
 
     // Extra protection: verify receiverId matches ad owner
-    if (receiverId !== sellerId.toString()) {
+    if (receiverObjectId.toString() !== sellerId.toString()) {
       console.log('[CHAT_START] 400: receiverId mismatch', { receiverId, sellerId: sellerId.toString() });
       return res.status(400).json({
         success: false,
@@ -256,12 +274,10 @@ export const startChat = async (req, res, next) => {
       });
     }
 
-    // Convert adId to ObjectId
-    const adObjectId = new mongoose.Types.ObjectId(adId);
-
-    // Prepare participants array (sorted for consistency)
-    const me = req.user.id;
-    const participants = [me, receiverId].sort();
+    // Prepare participants array (ObjectIds) and participantsKey
+    // Participants should be ObjectIds but consistent order doesn't matter due to participantsKey
+    const participants = [meObjectId, receiverObjectId];
+    const participantsKey = [meObjectId.toString(), receiverObjectId.toString()].sort().join('_');
 
     // One-time cleanup guard: Check for existing chats with ad: null and log warning
     // (Do NOT delete automatically, just log)
@@ -270,11 +286,12 @@ export const startChat = async (req, res, next) => {
       console.warn(`[CHAT_START] WARNING: Found ${nullChatsCount} chat(s) with ad: null in database. These will be ignored in queries.`);
     }
 
-    // Find existing chat for this ad and participants
+    // Find existing chat for this ad and participantsKey
     // IMPORTANT: Always use a real adId, NEVER query with ad: null
+    // Use participantsKey for stable uniqueness regardless of array order
     let chat = await Chat.findOne({
       ad: adObjectId, // Always use real adId, never null
-      participants: { $all: participants, $size: 2 },
+      participantsKey, // Use participantsKey for stable uniqueness
     });
 
     if (chat) {
@@ -304,10 +321,11 @@ export const startChat = async (req, res, next) => {
       });
     }
 
-    // Create new chat with adId
+    // Create new chat with adId, participants, and participantsKey
     chat = await Chat.create({
       ad: adObjectId,
       participants,
+      participantsKey, // Explicitly set participantsKey
     });
 
     // Populate participants (name, email) and ad
@@ -362,50 +380,68 @@ export const startChat = async (req, res, next) => {
     if (error.code === 11000) {
       try {
         const currentUserId = req.user?._id;
-        const receiverId = req.body.receiverId;
+        const receiverIdRaw = req.body.receiverId;
         const adIdRaw = req.body.adId ?? req.body.ad;
 
-        // Validate all required fields and ObjectId format
-        if (currentUserId && receiverId && adIdRaw && 
-            mongoose.Types.ObjectId.isValid(receiverId) && 
-            mongoose.Types.ObjectId.isValid(adIdRaw)) {
-          const currentUserObjectId = new mongoose.Types.ObjectId(currentUserId);
-          const receiverObjectId = new mongoose.Types.ObjectId(receiverId);
-          const adObjectId = new mongoose.Types.ObjectId(adIdRaw);
-          const participants = [currentUserObjectId.toString(), receiverObjectId.toString()].sort();
-
-          // Find existing chat with same ad and participants
-          // IMPORTANT: Always use a real adId, NEVER query with ad: null
-          const existingChat = await Chat.findOne({
-            ad: adObjectId, // Always use real adId, never null
-            participants: { $all: participants, $size: 2 },
+        // If any id missing/invalid -> do not retry lookup; just return 400 with VALIDATION_ERROR
+        if (!currentUserId || !receiverIdRaw || !adIdRaw ||
+            !mongoose.Types.ObjectId.isValid(receiverIdRaw) || 
+            !mongoose.Types.ObjectId.isValid(adIdRaw)) {
+          console.log('[CHAT_START] 400: Duplicate key error but missing/invalid IDs', {
+            hasCurrentUserId: !!currentUserId,
+            hasReceiverId: !!receiverIdRaw,
+            hasAdId: !!adIdRaw,
           });
+          return res.status(400).json({
+            success: false,
+            message: 'Validation failed',
+            details: {
+              type: 'VALIDATION_ERROR',
+              error: 'Duplicate key error with invalid input',
+            },
+          });
+        }
 
-          if (existingChat) {
-            await existingChat.populate('participants', 'name email');
-            
-            // Log in dev mode
-            if (process.env.NODE_ENV !== 'production') {
-              console.log('[CHAT_START] Duplicate key - found existing chat:', {
-                chatId: existingChat._id.toString(),
-                userId: currentUserId.toString(),
-                ad: adRaw,
-              });
-            }
+        // All IDs are valid, convert to ObjectIds
+        const currentUserObjectId = new mongoose.Types.ObjectId(currentUserId);
+        const receiverObjectId = new mongoose.Types.ObjectId(receiverIdRaw);
+        const adObjectId = new mongoose.Types.ObjectId(adIdRaw);
+        
+        // Generate participantsKey (sorted, joined with underscore)
+        const participantsKey = [currentUserObjectId.toString(), receiverObjectId.toString()].sort().join('_');
 
-            return res.status(200).json({
-              success: true,
-              message: 'Chat already exists',
-              chat: {
-                _id: existingChat._id,
-                ad: existingChat.ad,
-                participants: existingChat.participants,
-                lastMessage: existingChat.lastMessage,
-                createdAt: existingChat.createdAt,
-                updatedAt: existingChat.updatedAt,
-              },
+        // Find existing chat with same ad and participantsKey
+        // IMPORTANT: Always use a real adId, NEVER query with ad: null
+        const existingChat = await Chat.findOne({
+          ad: adObjectId, // Always use real adId, never null
+          participantsKey, // Use participantsKey for stable uniqueness
+        });
+
+        if (existingChat) {
+          await existingChat.populate('participants', 'name email');
+          
+          // Log in dev mode
+          if (process.env.NODE_ENV !== 'production') {
+            console.log('[CHAT_START] Duplicate key - found existing chat:', {
+              chatId: existingChat._id.toString(),
+              userId: currentUserId.toString(),
+              adId: adIdRaw,
+              participantsKey,
             });
           }
+
+          return res.status(200).json({
+            success: true,
+            message: 'Chat already exists',
+            chat: {
+              _id: existingChat._id,
+              ad: existingChat.ad,
+              participants: existingChat.participants,
+              lastMessage: existingChat.lastMessage,
+              createdAt: existingChat.createdAt,
+              updatedAt: existingChat.updatedAt,
+            },
+          });
         }
       } catch (retryError) {
         // If retry fails, pass original error
