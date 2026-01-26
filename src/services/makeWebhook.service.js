@@ -8,7 +8,7 @@
  * @returns {string} Webhook URL
  */
 const getWebhookUrl = () => {
-  const url = process.env.MAKE_WEBHOOK_URL || 'https://hook.eu1.make.com/yo9vi9yfkn7x406g6dcjghjmimpjpy12';
+  const url = process.env.MAKE_WEBHOOK_URL || 'https://hook.eu1.make.com/5d56jckhranc215bkijzykz1t838d2v6';
   
   if (!process.env.MAKE_WEBHOOK_URL) {
     console.warn('[MAKE] MAKE_WEBHOOK_URL not set, using default webhook URL');

@@ -197,6 +197,7 @@ export const forgotPassword = async (req, res, next) => {
         
         const makeResult = await sendToMakeWebhook(makePayload);
         console.log('[FORGOT] makeResult:', makeResult);
+        console.log('[MAKE] delivered:', makeResult);
       } catch (error) {
         // Additional error handling (though service already handles it)
         console.error('[FORGOT] Make webhook error:', error.message);
