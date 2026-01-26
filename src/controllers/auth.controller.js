@@ -194,9 +194,10 @@ export const forgotPassword = async (req, res, next) => {
       // Return 404 error immediately
       return res.status(404).json({
         success: false,
-        message: 'No account found with this email',
+        message: 'Cont cu emailul dat nu există',
         details: {
           type: 'EMAIL_NOT_FOUND',
+          field: 'email',
         },
       });
     }
@@ -247,7 +248,7 @@ export const forgotPassword = async (req, res, next) => {
     // Return success response
     res.status(200).json({
       success: true,
-      message: 'If the email exists, a reset link was sent.',
+      message: 'Link de reset a fost trimis',
       meta: {
         delivered: emailResult?.delivered ?? false,
         provider: emailResult?.provider ?? 'unknown',
