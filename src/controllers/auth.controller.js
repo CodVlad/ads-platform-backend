@@ -162,22 +162,41 @@ export const forgotPassword = async (req, res, next) => {
       );
     }
 
+    // Read strict flag to control behavior
+    const strict = process.env.FORGOT_PASSWORD_STRICT === 'true';
+    console.log('[FORGOT] strict:', strict);
+
     // Find user by email (case-insensitive)
     const user = await User.findOne({ email: email.toLowerCase() });
 
     console.log('[FORGOT] email exists:', !!user);
 
-    // If user not found, return 404 error immediately
-    // DO NOT send email, DO NOT send Make webhook, DO NOT generate token
+    // If user not found, handle based on strict flag
     if (!user) {
-      console.log('[FORGOT] email not found -> returning 404');
-      return res.status(404).json({
-        success: false,
-        message: 'Nu există cont cu acest email',
-        details: {
-          type: 'EMAIL_NOT_FOUND',
-        },
-      });
+      if (strict) {
+        // Strict mode: return 404 immediately
+        // DO NOT send email, DO NOT send Make webhook, DO NOT generate token
+        console.log('[FORGOT] email not found -> returning 404 (strict mode)');
+        return res.status(404).json({
+          success: false,
+          message: 'Cont cu emailul dat nu există',
+          details: {
+            type: 'EMAIL_NOT_FOUND',
+            field: 'email',
+          },
+        });
+      } else {
+        // Anti-enumeration mode: always return 200 with generic message
+        console.log('[FORGOT] email not found -> returning 200 (anti-enumeration mode)');
+        return res.status(200).json({
+          success: true,
+          message: 'If the email exists, a reset link was sent.',
+          meta: {
+            delivered: false,
+            provider: 'unknown',
+          },
+        });
+      }
     }
 
     // User exists - create reset token and send email
