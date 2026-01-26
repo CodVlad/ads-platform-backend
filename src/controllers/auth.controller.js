@@ -167,37 +167,15 @@ export const forgotPassword = async (req, res, next) => {
 
     console.log('[FORGOT] email exists:', !!user);
 
-    // If user not found, return 404 error
+    // If user not found, return 404 error immediately
+    // DO NOT send email, DO NOT send Make webhook, DO NOT generate token
     if (!user) {
-      // User doesn't exist - check if we should send debug event (dev only)
-      const shouldSendDebug = 
-        process.env.NODE_ENV !== 'production' && 
-        process.env.MAKE_DEBUG_ALWAYS === 'true';
-      
-      if (shouldSendDebug) {
-        console.log('[FORGOT] User does not exist, but MAKE_DEBUG_ALWAYS=true - sending debug event to Make');
-        try {
-          const debugPayload = {
-            event: 'forgot_password_debug_no_user',
-            email: email.toLowerCase(),
-            timestamp: new Date().toISOString(),
-            env: process.env.NODE_ENV || 'development',
-          };
-          
-          const makeResult = await sendToMakeWebhook(debugPayload);
-          console.log('[FORGOT] debug makeResult:', makeResult);
-        } catch (error) {
-          console.error('[FORGOT] Make webhook debug error:', error.message);
-        }
-      }
-      
-      // Return 404 error immediately
+      console.log('[FORGOT] email not found -> returning 404');
       return res.status(404).json({
         success: false,
-        message: 'Cont cu emailul dat nu există',
+        message: 'Nu există cont cu acest email',
         details: {
           type: 'EMAIL_NOT_FOUND',
-          field: 'email',
         },
       });
     }
