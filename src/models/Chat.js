@@ -2,11 +2,6 @@ import mongoose from 'mongoose';
 
 const chatSchema = new mongoose.Schema(
   {
-    ad: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Ad',
-      required: [true, 'Ad is required'],
-    },
     participants: {
       type: [
         {
@@ -18,15 +13,16 @@ const chatSchema = new mongoose.Schema(
       required: [true, 'Participants are required'],
       validate: {
         validator: function (participants) {
-          return participants && participants.length === 2;
+          // Must have exactly 2 participants
+          if (!participants || participants.length !== 2) {
+            return false;
+          }
+          // Prevent duplicate participants (same user twice)
+          const ids = participants.map((p) => p.toString());
+          return ids[0] !== ids[1];
         },
-        message: 'Chat must have exactly 2 participants',
+        message: 'Chat must have exactly 2 different participants',
       },
-    },
-    participantsKey: {
-      type: String,
-      required: true,
-      index: true,
     },
     lastMessage: {
       type: mongoose.Schema.Types.ObjectId,
@@ -40,38 +36,45 @@ const chatSchema = new mongoose.Schema(
   }
 );
 
-// Pre-save hook: Generate participantsKey from sorted participant IDs
-chatSchema.pre('save', function (next) {
+// Pre-validate hook: Sort participants to ensure consistent order for uniqueness
+chatSchema.pre('validate', function (next) {
   if (this.participants && this.participants.length === 2) {
-    // Convert to strings, sort, and join with underscore
-    const sortedIds = [
+    // Sort participants by string value to ensure consistent order
+    const sorted = [
       this.participants[0].toString(),
       this.participants[1].toString(),
     ].sort();
-    this.participantsKey = sortedIds.join('_');
+    
+    // Convert back to ObjectIds in sorted order
+    this.participants = [
+      new mongoose.Types.ObjectId(sorted[0]),
+      new mongoose.Types.ObjectId(sorted[1]),
+    ];
   }
   next();
 });
 
-// Pre-validate hook: Also set participantsKey before validation
-chatSchema.pre('validate', function (next) {
+// Pre-save hook: Ensure participants are sorted before saving
+chatSchema.pre('save', function (next) {
   if (this.participants && this.participants.length === 2) {
-    const sortedIds = [
+    const sorted = [
       this.participants[0].toString(),
       this.participants[1].toString(),
     ].sort();
-    this.participantsKey = sortedIds.join('_');
+    
+    this.participants = [
+      new mongoose.Types.ObjectId(sorted[0]),
+      new mongoose.Types.ObjectId(sorted[1]),
+    ];
   }
   next();
 });
 
 // Indexes for efficient queries
 chatSchema.index({ participants: 1 });
-chatSchema.index({ ad: 1 });
-chatSchema.index({ participantsKey: 1 });
-// NOTE: Unique index on { ad: 1, participantsKey: 1 } is created by ensureChatIndexes.js script
-// It uses a PARTIAL unique index that only applies when ad is an ObjectId (not null)
-// This prevents duplicate chats with valid ad while allowing legacy chats with ad:null to exist
+// Unique index: only ONE chat between the same two participants
+// Migration script will ensure this index exists after removing ad field
+chatSchema.index({ participants: 1 }, { unique: true });
 
 const Chat = mongoose.model('Chat', chatSchema);
 

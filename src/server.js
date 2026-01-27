@@ -33,10 +33,9 @@ const startServer = async () => {
     await connectDB();
     logger.info('Mongo connected');
 
-    // Ensure Chat collection has correct partial unique index
-    // This prevents duplicate chats with ad:null while allowing valid chats
-    const { ensureChatIndexes } = await import('./scripts/ensureChatIndexes.js');
-    await ensureChatIndexes();
+    // Run migration to remove ad field from chats (runs once, safe to run multiple times)
+    const { migrateChatsRemoveAd } = await import('./scripts/migrateChatsRemoveAd.js');
+    await migrateChatsRemoveAd();
 
     // Start Express server only if DB connection is successful
     // Listen on 0.0.0.0 to accept connections from Railway
